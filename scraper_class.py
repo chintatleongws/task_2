@@ -5,8 +5,10 @@ Class for connecting to the BrightData API
 import os
 import requests
 import time
+import asyncio 
 from dotenv import load_dotenv
-from types import List, Dict, Any 
+from typing import List, Dict, Any 
+import json
 
 load_dotenv()
 
@@ -44,7 +46,7 @@ class BrightDataAPI:
         Make a synchronous request to the BrightData API for the specified dataset and URLs. 
         Can be up to 20 URLs per request, in real time. 
         """
-        if dataset_id not in self.datasets:
+        if dataset_id not in self.datasets.values():
             raise ValueError(f"Dataset '{dataset_id}' is not recognized. Available datasets: {list(self.datasets.keys())}")
 
         if len(urls) > 20:
@@ -57,28 +59,32 @@ class BrightDataAPI:
         response.raise_for_status()
         return response.json()
     
-    def _get_async(self, dataset_id: str, urls: List[str]) -> Dict[str, Any]:
+    async def _get_async(self, dataset_id: str, urls: List[str], output_format: str = "json") -> Dict[str, Any]:
         """
         Make an asynchronous request to the BrightData API for the specified dataset and URLs. 
         Designed for larger requests and production use. Returns a job ID that can be used to check the status of the request and retrieve results later.
         """
-        if dataset_id not in self.datasets:
-            raise ValueError(f"Dataset '{dataset_id}' is not recognized. Available datasets: {list(self.datasets.keys())}")
+        if dataset_id not in self.datasets.values():
+            raise ValueError(f"Dataset '{dataset_id}' is not recognized. Available datasets: {list(self.datasets.values())}")
 
         payload = [{"url": url} for url in urls]
-        url = f"{self.base_url}/trigger?dataset_id={dataset_id}"
+        url = f"{self.base_url}/trigger?dataset_id={dataset_id}&format={output_format}"
+
 
         response = requests.post(url, headers=self.headers, json=payload)
         response.raise_for_status()
         return response.json()["snapshot_id"]
     
     def get_snapshot(self, snapshot_id: str) -> Dict[str, Any]:
+        """
+        A snapshot id is (by definition of BrightData) the unique identifier for the async scrape job.
+        """
         url = f"{self.base_url}/snapshot/{snapshot_id}"
         response = requests.get(url, headers=self.headers)
         response.raise_for_status()
         return response.json()
 
-    def wait_for_snapshot(self, snapshot_id: str, poll_interval: int = 5) -> Any:
+    async def wait_for_snapshot(self, snapshot_id: str, poll_interval: int = 5) -> Any:
         while True:
             snapshot = self.get_snapshot(snapshot_id)
             status = snapshot.get("status")
@@ -95,6 +101,7 @@ class BrightDataAPI:
     # To do:
     # - change copy paste job for scapes to more specific functions for each type.
     # - maybe some sort of api key retention
+    # - return to async 
     # =========================================================================
 
     def scrape_instagram_profiles(self, urls: List[str], async_mode: bool = False):
@@ -154,3 +161,14 @@ class BrightDataAPI:
             snapshot_id = self._get_async(dataset_id, urls)
             return self.wait_for_snapshot(snapshot_id)
         return self._get_sync(dataset_id, urls)
+    
+
+if __name__ == "__main__":
+    api = BrightDataAPI()
+    urls = ["https://www.instagram.com/p/Dabfs22BY-t/?hl=en"]
+    result = api.scrape_instagram_posts(urls, async_mode=False)
+    if not os.path.exists("./data/bronze/raw_json"):
+        os.makedirs("./data/bronze/raw_json")
+    with open("./data/bronze/raw_json/result.json", "w") as f:
+        json.dump(result, f, indent=4)
+    print(result)
