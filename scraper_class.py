@@ -1,28 +1,36 @@
-"""
-Class for connecting to the BrightData API 
-"""
+"""BrightData API adapter for use in a wider orchestration pipeline."""
 
-import os
-import requests
-import time
-import asyncio 
-from dotenv import load_dotenv
-from typing import List, Dict, Any 
+from __future__ import annotations
+
 import json
+import os
+import time
+from typing import Any, Dict, List
+
+import requests
+from dotenv import load_dotenv
+
+
+class BrightDataRequestError(RuntimeError):
+    """Raised when a BrightData request fails after retry attempts."""
 
 load_dotenv()
 
+
 class BrightDataAPI:
-    def __init__(self, api_key: str | None = None):
+    """Thin wrapper around the BrightData datasets API."""
+
+    def __init__(self, api_key: str | None = None, max_retries: int = 3, retry_delay: float = 2.0):
         self.base_url = "https://api.brightdata.com/datasets/v3"
         self.api_key = api_key or os.getenv("BRIGHTDATA_API_KEY")
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
 
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
 
-        # Bright Data dataset IDs for individual calls to different endpoints
         self.datasets = {
             "instagram_profile": "gd_l1vikfch901nx3by4",
             "instagram_post": "gd_lk5ns7kz21pck8jpis",
@@ -35,56 +43,67 @@ class BrightDataAPI:
             "facebook_post": "gd_lyclm1571iy3mv57zw",
             "reddit_post": "gd_lvz8ah06191smkebj4",
             "reddit_comments": "gd_lvzdpsdlw09j6t702",
-            # couldnt find a dataset for reddit profiles.
             "youtube_video": "gd_lk56epmy2i5g7lzu0k",
             "youtube_channel": "gd_lk538t2k2p1k3oos71",
             "youtube_comments": "gd_lk9q0ew71spt1mxywf",
         }
 
     def _get_sync(self, dataset_id: str, urls: List[str], output_format: str = "json") -> Dict[str, Any]:
-        """
-        Make a synchronous request to the BrightData API for the specified dataset and URLs. 
-        Can be up to 20 URLs per request, in real time. 
-        """
+        """Make a synchronous request to BrightData for up to 20 URLs."""
         if dataset_id not in self.datasets.values():
-            raise ValueError(f"Dataset '{dataset_id}' is not recognized. Available datasets: {list(self.datasets.keys())}")
+            raise ValueError(
+                f"Dataset '{dataset_id}' is not recognized. Available datasets: {list(self.datasets.keys())}"
+            )
 
         if len(urls) > 20:
-            raise ValueError("Sync requests support up to 20 URLs. Use scrape_async for larger jobs.")
+            raise ValueError("Sync requests support up to 20 URLs. Use async mode for larger jobs.")
 
         payload = [{"url": url} for url in urls]
         url = f"{self.base_url}/scrape?dataset_id={dataset_id}&format={output_format}"
 
-        response = requests.post(url, headers=self.headers, json=payload)
-        response.raise_for_status()
-        return response.json()
-    
-    async def _get_async(self, dataset_id: str, urls: List[str], output_format: str = "json") -> Dict[str, Any]:
-        """
-        Make an asynchronous request to the BrightData API for the specified dataset and URLs. 
-        Designed for larger requests and production use. Returns a job ID that can be used to check the status of the request and retrieve results later.
-        """
+        return self._request_with_retries("post", url, payload)
+
+    def _get_async(self, dataset_id: str, urls: List[str], output_format: str = "json") -> str:
+        """Trigger an async BrightData request and return the snapshot id."""
         if dataset_id not in self.datasets.values():
-            raise ValueError(f"Dataset '{dataset_id}' is not recognized. Available datasets: {list(self.datasets.values())}")
+            raise ValueError(
+                f"Dataset '{dataset_id}' is not recognized. Available datasets: {list(self.datasets.values())}"
+            )
 
         payload = [{"url": url} for url in urls]
         url = f"{self.base_url}/trigger?dataset_id={dataset_id}&format={output_format}"
 
+        response_json = self._request_with_retries("post", url, payload)
+        return response_json["snapshot_id"]
 
-        response = requests.post(url, headers=self.headers, json=payload)
-        response.raise_for_status()
-        return response.json()["snapshot_id"]
-    
+    def _request_with_retries(self, method: str, url: str, payload: List[Dict[str, str]]) -> Dict[str, Any]:
+        last_error: Exception | None = None
+        for attempt in range(self.max_retries + 1):
+            try:
+                if method == "post":
+                    response = requests.post(url, headers=self.headers, json=payload, timeout=60)
+                elif method == "get":
+                    response = requests.get(url, headers=self.headers, timeout=60)
+                else:
+                    raise ValueError(f"Unsupported method: {method}")
+
+                response.raise_for_status()
+                return response.json()
+            except requests.RequestException as exc:
+                last_error = exc
+                if attempt >= self.max_retries:
+                    break
+                time.sleep(self.retry_delay * (attempt + 1))
+
+        raise BrightDataRequestError(f"BrightData request failed after {self.max_retries} retries: {last_error}") from last_error
+
     def get_snapshot(self, snapshot_id: str) -> Dict[str, Any]:
-        """
-        A snapshot id is (by definition of BrightData) the unique identifier for the async scrape job.
-        """
+        """Fetch a BrightData snapshot by id."""
         url = f"{self.base_url}/snapshot/{snapshot_id}"
-        response = requests.get(url, headers=self.headers)
-        response.raise_for_status()
-        return response.json()
+        return self._request_with_retries("get", url, [])
 
-    async def wait_for_snapshot(self, snapshot_id: str, poll_interval: int = 5) -> Any:
+    def wait_for_snapshot(self, snapshot_id: str, poll_interval: int = 5) -> Any:
+        """Poll until the BrightData snapshot is ready."""
         while True:
             snapshot = self.get_snapshot(snapshot_id)
             status = snapshot.get("status")
@@ -92,76 +111,83 @@ class BrightDataAPI:
             if status == "ready":
                 return snapshot.get("data", snapshot)
             if status == "failed":
-                raise Exception(f"Scrape failed: {snapshot}")
+                raise RuntimeError(f"Scrape failed: {snapshot}")
 
             time.sleep(poll_interval)
 
-    # =========================================================================
-    # Maybe this is bulky but it makes the interface cleaner for the user.
-    # To do:
-    # - change copy paste job for scapes to more specific functions for each type.
-    # - maybe some sort of api key retention
-    # - return to async 
-    # =========================================================================
-
     def scrape_instagram_profiles(self, urls: List[str], async_mode: bool = False):
-        dataset_id = self.datasets["instagram_profile"]
-        return self._run(dataset_id, urls, async_mode)
+        return self._run(self.datasets["instagram_profile"], urls, async_mode)
 
     def scrape_instagram_posts(self, urls: List[str], async_mode: bool = False):
-        dataset_id = self.datasets["instagram_post"]
-        return self._run(dataset_id, urls, async_mode)
-    
+        return self._run(self.datasets["instagram_post"], urls, async_mode)
+
     def scrape_instagram_comments(self, urls: List[str], async_mode: bool = False):
-        dataset_id = self.datasets["instagram_comment"]
-        return self._run(dataset_id, urls, async_mode)
-    
+        return self._run(self.datasets["instagram_comment"], urls, async_mode)
+
     def scrape_instagram_reels(self, urls: List[str], async_mode: bool = False):
-        dataset_id = self.datasets["instagram_reel"]
-        return self._run(dataset_id, urls, async_mode)
+        return self._run(self.datasets["instagram_reel"], urls, async_mode)
 
     def scrape_tiktok_profiles(self, urls: List[str], async_mode: bool = False):
-        dataset_id = self.datasets["tiktok_profile"]
-        return self._run(dataset_id, urls, async_mode)
+        return self._run(self.datasets["tiktok_profile"], urls, async_mode)
 
     def scrape_tiktok_posts(self, urls: List[str], async_mode: bool = False):
-        dataset_id = self.datasets["tiktok_post"]
-        return self._run(dataset_id, urls, async_mode)
-    
+        return self._run(self.datasets["tiktok_post"], urls, async_mode)
+
     def scrape_facebook_profiles(self, urls: List[str], async_mode: bool = False):
-        dataset_id = self.datasets["facebook_profile"]
-        return self._run(dataset_id, urls, async_mode)
-    
+        return self._run(self.datasets["facebook_profile"], urls, async_mode)
+
     def scrape_facebook_posts(self, urls: List[str], async_mode: bool = False):
-        dataset_id = self.datasets["facebook_post"]
-        return self._run(dataset_id, urls, async_mode)
-    
+        return self._run(self.datasets["facebook_post"], urls, async_mode)
+
     def scrape_reddit_posts(self, urls: List[str], async_mode: bool = False):
-        dataset_id = self.datasets["reddit_post"]
-        return self._run(dataset_id, urls, async_mode)
-    
+        return self._run(self.datasets["reddit_post"], urls, async_mode)
+
     def scrape_reddit_comments(self, urls: List[str], async_mode: bool = False):
-        dataset_id = self.datasets["reddit_comments"]
-        return self._run(dataset_id, urls, async_mode)
-    
+        return self._run(self.datasets["reddit_comments"], urls, async_mode)
+
     def scrape_youtube_videos(self, urls: List[str], async_mode: bool = False):
-        dataset_id = self.datasets["youtube_video"]
-        return self._run(dataset_id, urls, async_mode)
-    
+        return self._run(self.datasets["youtube_video"], urls, async_mode)
+
     def scrape_youtube_channels(self, urls: List[str], async_mode: bool = False):
-        dataset_id = self.datasets["youtube_channel"]
-        return self._run(dataset_id, urls, async_mode)
-    
+        return self._run(self.datasets["youtube_channel"], urls, async_mode)
+
     def scrape_youtube_comments(self, urls: List[str], async_mode: bool = False):
-        dataset_id = self.datasets["youtube_comments"]
-        return self._run(dataset_id, urls, async_mode)
+        return self._run(self.datasets["youtube_comments"], urls, async_mode)
+
+    def scrape_profiles(self, profiles: List[Dict[str, Any]], dataset_key: str, async_mode: bool = False) -> List[Dict[str, Any]]:
+        """Scrape a batch of profile-like objects and return normalized records."""
+        if not profiles:
+            return []
+
+        if dataset_key not in self.datasets:
+            raise ValueError(f"Unknown dataset key '{dataset_key}'.")
+
+        urls = [profile["url"] for profile in profiles]
+        dataset_id = self.datasets[dataset_key]
+        raw_results = self._run(dataset_id, urls, async_mode)
+
+        if not isinstance(raw_results, list):
+            raw_results = [raw_results]
+
+        normalized_results: List[Dict[str, Any]] = []
+        for profile, result in zip(profiles, raw_results):
+            normalized_results.append(
+                {
+                    "profile_id": profile.get("profile_id"),
+                    "platform": profile.get("platform"),
+                    "url": profile.get("url"),
+                    "dataset_key": dataset_key,
+                    "raw_result": result,
+                }
+            )
+        return normalized_results
 
     def _run(self, dataset_id: str, urls: List[str], async_mode: bool):
         if async_mode or len(urls) > 20:
             snapshot_id = self._get_async(dataset_id, urls)
             return self.wait_for_snapshot(snapshot_id)
         return self._get_sync(dataset_id, urls)
-    
+
 
 if __name__ == "__main__":
     api = BrightDataAPI()
@@ -169,6 +195,6 @@ if __name__ == "__main__":
     result = api.scrape_instagram_posts(urls, async_mode=False)
     if not os.path.exists("./data/bronze/raw_json"):
         os.makedirs("./data/bronze/raw_json")
-    with open("./data/bronze/raw_json/result.json", "w") as f:
-        json.dump(result, f, indent=4)
+    with open("./data/bronze/raw_json/result.json", "w", encoding="utf-8") as handle:
+        json.dump(result, handle, indent=4)
     print(result)
