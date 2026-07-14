@@ -9,6 +9,7 @@ from typing import Any, Dict, List
 from enum import Enum
 import requests
 from dotenv import load_dotenv
+from datetime import datetime
 
 
 class BrightDataRequestError(RuntimeError):
@@ -214,6 +215,8 @@ if __name__ == "__main__":
     result = api.scrape_instagram_posts(urls, async_mode=False)
     if not os.path.exists("./data/bronze/raw_json"):
         os.makedirs("./data/bronze/raw_json")
-    with open("./data/bronze/raw_json/result.json", "w", encoding="utf-8") as handle:
+        
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    with open(f"./data/bronze/raw_json/result_{timestamp}.json", "w", encoding="utf-8") as handle:
         json.dump(result, handle, indent=4)
     print(result)
