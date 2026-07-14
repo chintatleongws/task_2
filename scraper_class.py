@@ -10,6 +10,7 @@ from enum import Enum
 import requests
 from dotenv import load_dotenv
 from datetime import datetime
+import asyncio
 
 
 class BrightDataRequestError(RuntimeError):
@@ -135,46 +136,46 @@ class BrightDataAPI:
 
             time.sleep(poll_interval)
 
-    def scrape_instagram_profiles(self, urls: List[str], async_mode: bool = False):
-        return self._run(self.datasets["instagram_profile"], urls, async_mode)
+    async def scrape_instagram_profiles(self, urls: List[str], async_mode: bool = False):
+        return await self._run(self.datasets["instagram_profile"], urls, async_mode)
 
-    def scrape_instagram_posts(self, urls: List[str], async_mode: bool = False):
-        return self._run(self.datasets["instagram_post"], urls, async_mode)
+    async def scrape_instagram_posts(self, urls: List[str], async_mode: bool = False):
+        return await self._run(self.datasets["instagram_post"], urls, async_mode)
 
-    def scrape_instagram_comments(self, urls: List[str], async_mode: bool = False):
-        return self._run(self.datasets["instagram_comment"], urls, async_mode)
+    async def scrape_instagram_comments(self, urls: List[str], async_mode: bool = False):
+        return await self._run(self.datasets["instagram_comment"], urls, async_mode)
 
-    def scrape_instagram_reels(self, urls: List[str], async_mode: bool = False):
-        return self._run(self.datasets["instagram_reel"], urls, async_mode)
+    async def scrape_instagram_reels(self, urls: List[str], async_mode: bool = False):
+        return await self._run(self.datasets["instagram_reel"], urls, async_mode)
 
-    def scrape_tiktok_profiles(self, urls: List[str], async_mode: bool = False):
-        return self._run(self.datasets["tiktok_profile"], urls, async_mode)
+    async def scrape_tiktok_profiles(self, urls: List[str], async_mode: bool = False):
+        return await self._run(self.datasets["tiktok_profile"], urls, async_mode)
 
-    def scrape_tiktok_posts(self, urls: List[str], async_mode: bool = False):
-        return self._run(self.datasets["tiktok_post"], urls, async_mode)
+    async def scrape_tiktok_posts(self, urls: List[str], async_mode: bool = False):
+        return await self._run(self.datasets["tiktok_post"], urls, async_mode)
 
-    def scrape_facebook_profiles(self, urls: List[str], async_mode: bool = False):
-        return self._run(self.datasets["facebook_profile"], urls, async_mode)
+    async def scrape_facebook_profiles(self, urls: List[str], async_mode: bool = False):
+        return await self._run(self.datasets["facebook_profile"], urls, async_mode)
 
-    def scrape_facebook_posts(self, urls: List[str], async_mode: bool = False):
-        return self._run(self.datasets["facebook_post"], urls, async_mode)
+    async def scrape_facebook_posts(self, urls: List[str], async_mode: bool = False):
+        return await self._run(self.datasets["facebook_post"], urls, async_mode)
 
-    def scrape_reddit_posts(self, urls: List[str], async_mode: bool = False):
-        return self._run(self.datasets["reddit_post"], urls, async_mode)
+    async def scrape_reddit_posts(self, urls: List[str], async_mode: bool = False):
+        return await self._run(self.datasets["reddit_post"], urls, async_mode)
 
-    def scrape_reddit_comments(self, urls: List[str], async_mode: bool = False):
-        return self._run(self.datasets["reddit_comments"], urls, async_mode)
+    async def scrape_reddit_comments(self, urls: List[str], async_mode: bool = False):
+        return await self._run(self.datasets["reddit_comments"], urls, async_mode)
 
-    def scrape_youtube_videos(self, urls: List[str], async_mode: bool = False):
-        return self._run(self.datasets["youtube_video"], urls, async_mode)
+    async def scrape_youtube_videos(self, urls: List[str], async_mode: bool = False):
+        return await self._run(self.datasets["youtube_video"], urls, async_mode)
 
-    def scrape_youtube_channels(self, urls: List[str], async_mode: bool = False):
-        return self._run(self.datasets["youtube_channel"], urls, async_mode)
+    async def scrape_youtube_channels(self, urls: List[str], async_mode: bool = False):
+        return await self._run(self.datasets["youtube_channel"], urls, async_mode)
 
-    def scrape_youtube_comments(self, urls: List[str], async_mode: bool = False):
-        return self._run(self.datasets["youtube_comments"], urls, async_mode)
+    async def scrape_youtube_comments(self, urls: List[str], async_mode: bool = False):
+        return await self._run(self.datasets["youtube_comments"], urls, async_mode)
 
-    def scrape_profiles(self, profiles: List[Dict[str, Any]], dataset_key: str, async_mode: bool = False) -> List[Dict[str, Any]]:
+    async def scrape_profiles(self, profiles: List[Dict[str, Any]], dataset_key: str, async_mode: bool = False) -> List[Dict[str, Any]]:
         """Scrape a batch of profile-like objects and return normalized records."""
         if not profiles:
             return []
@@ -202,17 +203,18 @@ class BrightDataAPI:
             )
         return normalized_results
 
-    def _run(self, dataset_id: str, urls: List[str], async_mode: bool):
+    async def _run(self, dataset_id: str, urls: List[str], async_mode: bool):
         if async_mode or len(urls) > 20:
             snapshot_id = self._get_async(dataset_id, urls)
             return self.wait_for_snapshot(snapshot_id)
         return self._get_sync(dataset_id, urls)
 
 
-if __name__ == "__main__":
+async def main():
     api = BrightDataAPI()
-    urls = ["https://www.instagram.com/p/Dabfs22BY-t/?hl=en"]
-    result = api.scrape_instagram_posts(urls, async_mode=False)
+    urls = ["https://www.facebook.com/zuck/posts/pfbid0qHqez5KikixR9UL5QQ6y5SxTP5sFTT82Vd8qsv5hvsb7PMWdTgU5aahMgSv9WChyl"]
+    result = await api.scrape_facebook_posts(urls, async_mode=False)
+
     if not os.path.exists("./data/bronze/raw_json"):
         os.makedirs("./data/bronze/raw_json")
         
@@ -220,3 +222,6 @@ if __name__ == "__main__":
     with open(f"./data/bronze/raw_json/result_{timestamp}.json", "w", encoding="utf-8") as handle:
         json.dump(result, handle, indent=4)
     print(result)
+
+if __name__ == "__main__":
+    asyncio.run(main())
