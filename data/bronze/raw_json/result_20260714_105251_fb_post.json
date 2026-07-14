@@ -1,0 +1,77 @@
+[
+    {
+        "url": "https://www.facebook.com/zuck/posts/pfbid0qHqez5KikixR9UL5QQ6y5SxTP5sFTT82Vd8qsv5hvsb7PMWdTgU5aahMgSv9WChyl",
+        "post_id": "10117699115562331",
+        "user_url": "https://www.facebook.com/zuck",
+        "user_username_raw": "Mark Zuckerberg",
+        "content": "Will Cathcart just announced that he's stepping down as the head of WhatsApp after 7 years leading the app. Will's been one of Meta's most important and effective leaders, helping to bring WhatsApp to over 3 billion people and championing privacy for our community. I'm super grateful for his partnership and contributions over these years. Will is transitioning to a new role within Meta where he'll build new products from the ground-up -- I'm excited to continue to work together closely.\n\nKunal Shah will join Meta as WhatsApp's next leader. Kunal built CRED into one of India's most important technology companies, and he brings the kind of builder mentality and global perspective that will serve him well in running the world's biggest messaging app. I look forward to working with Kunal to continue to make WhatsApp the best service for billions of people and millions of businesses.",
+        "date_posted": "2026-06-22T13:00:18.000Z",
+        "hashtags": [],
+        "num_comments": 29725,
+        "num_shares": 4212,
+        "num_likes_type": [
+            {
+                "type": "Like",
+                "num": 115435
+            },
+            {
+                "type": "Love",
+                "num": 19421
+            },
+            {
+                "type": "Care",
+                "num": 3012
+            },
+            {
+                "type": "Wow",
+                "num": 703
+            },
+            {
+                "type": "Haha",
+                "num": 406
+            },
+            {
+                "type": "Angry",
+                "num": 89
+            },
+            {
+                "type": "Sad",
+                "num": 65
+            }
+        ],
+        "profile_id": "4",
+        "page_logo": "https://scontent.fkgf1-2.fna.fbcdn.net/v/t39.30808-1/632598281_10117314650513371_3238643608998008744_n.jpg?stp=dst-jpg_tt6&cstp=mx711x711&ctp=s200x200&_nc_cat=1&ccb=1-7&_nc_sid=1d2534&_nc_ohc=ZYb9dRv0Xf0Q7kNvwHz7lLP&_nc_oc=AdoI-ZXoAXp3Jbj5vzfJ8yRt3rI4zrwONWU6XaOI8hYB9IfRe5AWgcvwgVn9m85QF-s&_nc_zt=24&_nc_ht=scontent.fkgf1-2.fna&_nc_gid=5HfogN7QqzkttdMGq70QxA&_nc_ss=79289&oh=00_AQD-Ij3rMHyrzHcEwboVUxQvbIv-uCjJMK1ZfGrCkmw3rA&oe=6A5BDF0B",
+        "page_likes": null,
+        "page_followers": 121000000,
+        "page_is_verified": true,
+        "original_post": {
+            "hashtags": null,
+            "attachments": null
+        },
+        "attachments": null,
+        "post_external_link": null,
+        "post_external_title": null,
+        "page_url": "https://www.facebook.com/zuck",
+        "header_image": "https://www.facebook.com/photo/?fbid=10117314656226921&set=a.941146602501",
+        "avatar_image_url": "https://scontent.fcgk27-1.fna.fbcdn.net/v/t39.30808-1/632598281_10117314650513371_3238643608998008744_n.jpg?stp=cp0_dst-jpg_tt6&cstp=mx711x711&ctp=s40x40&_nc_cat=1&ccb=1-7&_nc_sid=1d2534&_nc_ohc=ZYb9dRv0Xf0Q7kNvwGEt3uU&_nc_oc=AdoG7Rweej_q1-j-temfufU6BypL6qF9dnJRcWRi61gm9EpbVEaBN7vde2I3wMAnzJI&_nc_zt=24&_nc_ht=scontent.fcgk27-1.fna&_nc_gid=eX4Zsg9vghd_6d7RaOWAxw&_nc_ss=79289&oh=00_AQDrACB-Clmg9ylLnbm_cb0W6d3emzFJiPAhHmS3j5KUKA&oe=6A5BDF0B",
+        "profile_handle": "zuck",
+        "has_handshake": null,
+        "is_sponsored": false,
+        "sponsor_name": null,
+        "shortcode": "10117699115562331",
+        "video_view_count": null,
+        "likes": 115435,
+        "post_image": null,
+        "post_type": "Post",
+        "user_handle": "zuck",
+        "play_count": null,
+        "video_title": null,
+        "marketplace_price": null,
+        "delegate_page_id": "111895498378878",
+        "marketplace_is_sold": null,
+        "timestamp": "2026-07-14T09:52:54.833Z",
+        "input": {
+            "url": "https://www.facebook.com/zuck/posts/pfbid0qHqez5KikixR9UL5QQ6y5SxTP5sFTT82Vd8qsv5hvsb7PMWdTgU5aahMgSv9WChyl"
+        }
+    }
+]

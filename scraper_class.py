@@ -62,6 +62,7 @@ class BrightDataAPI:
             "tiktok_comment": "gd_lkf2st302ap89utw5k",
             "facebook_profile": "gd_mf0urb782734ik94dz",
             "facebook_post": "gd_lyclm1571iy3mv57zw",
+            "facebook_comment": "gd_lkay758p1eanlolqw8",
             "reddit_post": "gd_lvz8ah06191smkebj4",
             "reddit_comments": "gd_lvzdpsdlw09j6t702",
             "youtube_video": "gd_lk56epmy2i5g7lzu0k",
@@ -160,6 +161,9 @@ class BrightDataAPI:
     async def scrape_facebook_posts(self, urls: List[str], async_mode: bool = False):
         return await self._run(self.datasets["facebook_post"], urls, async_mode)
 
+    async def scrape_facebook_comments(self, urls: List[str], async_mode: bool = False):
+        return await self._run(self.datasets["facebook_comment"], urls, async_mode)
+
     async def scrape_reddit_posts(self, urls: List[str], async_mode: bool = False):
         return await self._run(self.datasets["reddit_post"], urls, async_mode)
 
@@ -212,8 +216,8 @@ class BrightDataAPI:
 
 async def main():
     api = BrightDataAPI()
-    urls = ["https://www.facebook.com/zuck/posts/pfbid0qHqez5KikixR9UL5QQ6y5SxTP5sFTT82Vd8qsv5hvsb7PMWdTgU5aahMgSv9WChyl"]
-    result = await api.scrape_facebook_posts(urls, async_mode=False)
+    urls = ["https://www.instagram.com/p/Dabfs22BY-t/?hl=en"]
+    result = await api.scrape_instagram_comments(urls, async_mode=False)
 
     if not os.path.exists("./data/bronze/raw_json"):
         os.makedirs("./data/bronze/raw_json")

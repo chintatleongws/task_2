@@ -220,5 +220,3 @@ __marimo__/
 # poetry 
 poetry.lock
 .env
-data/*
-.DS_Store
