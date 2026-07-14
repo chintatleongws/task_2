@@ -16,6 +16,25 @@ class BrightDataRequestError(RuntimeError):
 
 load_dotenv()
 
+class STORAGE_MODE(str, Enum):
+    LOCAL = "local"
+    S3 = "s3"
+    GCS = "gcs"
+    AZURE = "azure"
+    
+storage_mode = STORAGE_MODE(os.getenv("STORAGE_MODE", "local").lower())
+
+if storage_mode == STORAGE_MODE.LOCAL:
+    storage_path = "./data/bronze/raw_json"
+elif storage_mode == STORAGE_MODE.S3:
+    storage_path = "s3://your-bucket-name/data/bronze/raw_json"
+elif storage_mode == STORAGE_MODE.GCS:
+    storage_path = "gs://your-bucket-name/data/bronze/raw_json"
+elif storage_mode == STORAGE_MODE.AZURE:
+    storage_path = "https://your-account-name.blob.core.windows.net/your-container-name/data/bronze/raw_json"
+    
+    
+
 
 class BrightDataAPI:
     """Thin wrapper around the BrightData datasets API."""
