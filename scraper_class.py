@@ -6,7 +6,7 @@ import json
 import os
 import time
 from typing import Any, Dict, List
-
+from enum import Enum
 import requests
 from dotenv import load_dotenv
 
