@@ -1,16 +1,4 @@
 services:
-  localstack:
-    image: localstack/localstack:3.8
-    ports:
-      - "4566:4566"
-    environment:
-      SERVICES: s3,sqs
-      AWS_DEFAULT_REGION: eu-west-1
-      DEBUG: "1"
-    volumes:
-      - "./.localstack:/var/lib/localstack"
-      - "/var/run/docker.sock:/var/run/docker.sock"
-
   scraper:
     build: .
     container_name: scraper
@@ -22,18 +10,10 @@ services:
       DB_NAME: scraper_db
       DB_USER: postgres
       DB_PASSWORD: password
-      # localstack environment variables
-      AWS_ENDPOINT_URL: http://localstack:4566
-      AWS_ACCESS_KEY_ID: test
-      AWS_SECRET_ACCESS_KEY: test
-      AWS_DEFAULT_REGION: eu-west-1
-      SQS_QUEUE_URL: http://localstack:4566/000000000000/test-queue
-      S3_BUCKET: test-bucket
     volumes:
       - ./data:/scraper/data
     depends_on:
       - database
-      - localstack
 
   database:
     image: postgres:latest  # should be a fixed version for production
@@ -48,4 +28,3 @@ services:
       - db_data:/var/lib/postgresql/data
 volumes:
   db_data:
-
