@@ -21,4 +21,4 @@ COPY . .
 RUN poetry config virtualenvs.create false \
     && poetry install --no-interaction --no-ansi --no-root
 
-CMD ["python", "worker.py"]
+CMD ["python", "-m", "worker"]

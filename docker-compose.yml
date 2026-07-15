@@ -20,6 +20,7 @@ services:
   scraper:
     build: .
     container_name: scraper
+    command: ["python", "-m", "worker"]
     environment:
       BRIGHTDATA_API_KEY: ${BRIGHTDATA_API_KEY}
       STORAGE_MODE: ${STORAGE_MODE}

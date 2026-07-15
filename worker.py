@@ -57,12 +57,12 @@ def send_to_dlq(client, message: dict[str, Any], reason: str, dlq_url: str) -> N
     print(f"Sent to DLQ: {reason}")
 
 
-def main() -> None:
-    client, s3 = get_boto_clients()
-    dlq_url = ensure_resources(client, s3, S3_BUCKET)
+def process_queue_messages() -> None:
+    sqs_client, s3 = get_boto_clients()
+    dlq_url = ensure_resources(sqs_client, s3, S3_BUCKET)
 
     while True:
-        response = client.receive_message(
+        response = sqs_client.receive_message(
             QueueUrl=SQS_QUEUE_URL,
             MaxNumberOfMessages=1,
             WaitTimeSeconds=5,
@@ -76,19 +76,19 @@ def main() -> None:
         try:
             body = json.loads(message["Body"])
             process_message_body(body, s3_client=s3, bucket_name=S3_BUCKET)
-            client.delete_message(QueueUrl=SQS_QUEUE_URL, ReceiptHandle=message["ReceiptHandle"])
+            sqs_client.delete_message(QueueUrl=SQS_QUEUE_URL, ReceiptHandle=message["ReceiptHandle"])
             print(f"Processed {body}")
         except Exception as exc:
             attempts = int(message.get("Attributes", {}).get("ApproximateReceiveCount", "0"))
             print(f"Processing failed (attempt {attempts}/{MAX_RETRIES + 1}): {exc}")
 
             if attempts >= MAX_RETRIES + 1:
-                send_to_dlq(client, message, str(exc), dlq_url)
-                client.delete_message(QueueUrl=SQS_QUEUE_URL, ReceiptHandle=message["ReceiptHandle"])
+                send_to_dlq(sqs_client, message, str(exc), dlq_url)
+                sqs_client.delete_message(QueueUrl=SQS_QUEUE_URL, ReceiptHandle=message["ReceiptHandle"])
             else:
                 time.sleep(1)
 
 
 if __name__ == "__main__":
-    main()
+    process_queue_messages()
 

@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
+import re
 import time
-from typing import Any, Dict, List
+from datetime import datetime
 from enum import Enum
+from typing import Any, Dict, List
+
 import requests
 from dotenv import load_dotenv
-from datetime import datetime
-import asyncio
 
 
 class BrightDataRequestError(RuntimeError):
@@ -70,9 +72,33 @@ class BrightDataAPI:
             "youtube_comments": "gd_lk9q0ew71spt1mxywf",
         }
 
-    def build_job_payload(self, urls: List[str], dataset_key: str, job_id: str = "job") -> Dict[str, Any]:
-        """Build a queue-friendly payload from the adapter's dataset mapping."""
-        if dataset_key not in self.datasets:
+    def infer_dataset_key(self, url: str) -> str:
+        """Infer the BrightData dataset key from a single URL."""
+        lowered = url.lower()
+        if "instagram.com" in lowered:
+            if re.search(r"/p/|/reel/|/tv/", lowered):
+                return "instagram_post"
+            return "instagram_profile"
+        if "facebook.com" in lowered:
+            if "/posts/" in lowered or "/photos/" in lowered or "/videos/" in lowered:
+                return "facebook_post"
+            return "facebook_profile"
+        if "reddit.com" in lowered:
+            return "reddit_post"
+        if "youtube.com" in lowered or "youtu.be" in lowered:
+            return "youtube_video"
+        if "tiktok.com" in lowered:
+            return "tiktok_post"
+        raise ValueError(f"Unable to infer dataset for URL '{url}'.")
+
+    def build_job_payload(self, urls: List[str], dataset_key: str | None = None, job_id: str = "job") -> Dict[str, Any]:
+        """Build a queue-friendly payload from the adapter's dataset mapping.
+
+        If no dataset key is provided, the adapter will infer one from the URL patterns.
+        """
+        if dataset_key is None:
+            dataset_key = self.infer_dataset_key(urls[0])
+        elif dataset_key not in self.datasets:
             raise ValueError(f"Unknown dataset key '{dataset_key}'.")
 
         return {
