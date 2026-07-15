@@ -70,6 +70,21 @@ class BrightDataAPI:
             "youtube_comments": "gd_lk9q0ew71spt1mxywf",
         }
 
+    def build_job_payload(self, urls: List[str], dataset_key: str, job_id: str = "job") -> Dict[str, Any]:
+        """Build a queue-friendly payload from the adapter's dataset mapping."""
+        if dataset_key not in self.datasets:
+            raise ValueError(f"Unknown dataset key '{dataset_key}'.")
+
+        return {
+            "id": job_id,
+            "source": "brightdata",
+            "data": {
+                "dataset": dataset_key,
+                "dataset_id": self.datasets[dataset_key],
+                "urls": urls,
+            },
+        }
+
     def _get_sync(self, dataset_id: str, urls: List[str], output_format: str = "json") -> Dict[str, Any]:
         """Make a synchronous request to BrightData for up to 20 URLs."""
         if dataset_id not in self.datasets.values():

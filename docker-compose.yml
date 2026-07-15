@@ -10,6 +10,12 @@ services:
     volumes:
       - "./.localstack:/var/lib/localstack"
       - "/var/run/docker.sock:/var/run/docker.sock"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
 
   scraper:
     build: .
@@ -32,11 +38,13 @@ services:
     volumes:
       - ./data:/scraper/data
     depends_on:
-      - database
-      - localstack
+      database:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
 
   database:
-    image: postgres:latest  # should be a fixed version for production
+    image: postgres:16-alpine
     container_name: postgres_db
     environment:
       POSTGRES_USER: postgres
@@ -46,6 +54,12 @@ services:
       - "5432:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d scraper_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 volumes:
   db_data:
 

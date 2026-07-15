@@ -1,51 +1,48 @@
 import json
+import os
 from airflow.sdk import dag, task
 import pendulum
-import time
+import boto3
+from botocore.config import Config
+
+from scraper_class import BrightDataAPI
 
 
 @dag(
-    schedule=None,
+    schedule="@daily",
     start_date=pendulum.datetime(2025, 1, 1, tz="UTC"),
     catchup=False,
-    tags=["BrightDataPipeline_testing"],
+    tags=["BrightDataPipeline"],
 )
-def BrightDataPipeline_testing():
+def BrightDataPipeline(urls: list[str]):
     @task()
-    def extract():
-        """
-        #### Extract task
-        A simple Extract task to get data ready for the rest of the data
-        pipeline. In this case, getting data is simulated by reading from a
-        hardcoded JSON string.
-        """
-        data_string = '{"1001": 301.27, "1002": 433.21, "1003": 502.22}'
+    def build_payload(urls: list[str]):
+        """Build the Bright Data payload using the adapter's dataset mapping."""
+        api = BrightDataAPI(api_key=os.getenv("BRIGHTDATA_API_KEY"))
+        return api.build_job_payload(urls=urls, dataset_key="instagram_post", job_id="job_test")
 
-        order_data_dict = json.loads(data_string)
-        return order_data_dict
-    @task(multiple_outputs=True)
-    def transform(order_data_dict: dict):
-        """
-        #### Transform task
-        A simple Transform task which takes in the collection of order data and
-        computes the total order value.
-        """
-        total_order_value = 0
-
-        for value in order_data_dict.values():
-            total_order_value += value
-
-        return {"total_order_value": total_order_value}
     @task()
-    def load(total_order_value: float):
-        """
-        #### Load task
-        A simple Load task which takes in the result of the Transform task and
-        instead of saving it to end user review, just prints it out.
-        """
+    def publish_to_sqs(**context):
+        """Send a Bright Data job request to the local SQS queue."""
+        payload = build_payload(urls)
+        endpoint_url = os.getenv("AWS_ENDPOINT_URL", "http://localhost:4566")
+        region_name = os.getenv("AWS_DEFAULT_REGION", "eu-west-1")
+        access_key_id = os.getenv("AWS_ACCESS_KEY_ID", "test")
+        secret_access_key = os.getenv("AWS_SECRET_ACCESS_KEY", "test")
+        queue_url = os.getenv("SQS_QUEUE_URL", "http://localhost:4566/000000000000/test-queue")
 
-        print(f"Total order value is: {total_order_value:.2f}")
-    order_data = extract()
-    order_summary = transform(order_data)
-    load(order_summary["total_order_value"])
+        session = boto3.session.Session()
+        client = session.client(
+            "sqs",
+            region_name=region_name,
+            aws_access_key_id=access_key_id,
+            aws_secret_access_key=secret_access_key,
+            endpoint_url=endpoint_url,
+            config=Config(signature_version="s3v4"),
+        )
+
+        client.send_message(QueueUrl=queue_url, MessageBody=json.dumps(payload))
+        return payload
+
+
 
