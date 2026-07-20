@@ -10,6 +10,7 @@ import time
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List
+from unittest import result
 from urllib import response
 
 import requests
@@ -47,6 +48,8 @@ class BrightDataAPI:
     def __init__(self, api_key: str | None = None, max_retries: int = 3, retry_delay: float = 2.0):
         self.base_url = "https://api.brightdata.com/datasets/v3"
         self.api_key = api_key or os.getenv("BRIGHTDATA_API_KEY")
+        if not self.api_key:
+            raise ValueError("BRIGHTDATA_API_KEY is not set")
         self.max_retries = max_retries
         self.retry_delay = retry_delay
 
@@ -183,11 +186,6 @@ class BrightDataAPI:
                 time.sleep(self.retry_delay * (attempt + 1))
 
         raise BrightDataRequestError(f"BrightData request failed after {self.max_retries} retries: {last_error}") from last_error
-
-    def get_snapshot(self, snapshot_id: str) -> Dict[str, Any]:
-        """Fetch a BrightData snapshot by id."""
-        url = f"{self.base_url}/snapshot/{snapshot_id}"
-        return self._request_with_retries("get", url)
     
     def monitor_snapshot(self, snapshot_id: str) -> Dict[str, Any]:
         """Check BrightData snapshot progress."""
@@ -219,51 +217,85 @@ class BrightDataAPI:
                 raise TimeoutError(f"Snapshot {snapshot_id} was not ready after {max_wait_seconds} seconds")
 
             time.sleep(poll_interval)
+    
+    def has_errors(self, result: Any) -> bool:
+        if not isinstance(result, list):
+            return False
+
+        for item in result:
+            if (
+                isinstance(item, dict)
+                and item.get("error_code")
+            ):
+                return True
+
+        return False
+            
+    def save_result(self, result: Any, dataset_key: str):
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        if "comment" in dataset_key:
+            folder = os.path.join(storage_path, "comments")
+        elif "post" in dataset_key:
+            folder = os.path.join(storage_path, "posts")
+        else:
+            folder = storage_path
+
+        os.makedirs(folder, exist_ok=True)
+
+        filename = f"{dataset_key}_{timestamp}.json"
+
+        with open(
+            os.path.join(folder, filename),
+            "w",
+            encoding="utf-8",
+        ) as f:
+            json.dump(result, f, indent=4)
 
     async def scrape_instagram_profiles(self, urls: List[str], async_mode: bool = False):
-        return await self._run(self.datasets["instagram_profile"], urls, async_mode)
+        return await self._run(self.datasets["instagram_profile"], "instagram_profile", urls, async_mode)
 
     async def scrape_instagram_posts(self, urls: List[str], async_mode: bool = False):
-        return await self._run(self.datasets["instagram_post"], urls, async_mode)
+        return await self._run(self.datasets["instagram_post"], "instagram_post", urls, async_mode)
 
     async def scrape_instagram_comments(self, urls: List[str], async_mode: bool = False):
-        return await self._run(self.datasets["instagram_comment"], urls, async_mode)
+        return await self._run(self.datasets["instagram_comment"], "instagram_comment", urls, async_mode)
 
     async def scrape_instagram_reels(self, urls: List[str], async_mode: bool = False):
-        return await self._run(self.datasets["instagram_reel"], urls, async_mode)
+        return await self._run(self.datasets["instagram_reel"], "instagram_reel", urls, async_mode)
 
     async def scrape_tiktok_profiles(self, urls: List[str], async_mode: bool = False):
-        return await self._run(self.datasets["tiktok_profile"], urls, async_mode)
+        return await self._run(self.datasets["tiktok_profile"], "tiktok_profile", urls, async_mode)
 
     async def scrape_tiktok_posts(self, urls: List[str], async_mode: bool = False):
-        return await self._run(self.datasets["tiktok_post"], urls, async_mode)
-    
+        return await self._run(self.datasets["tiktok_post"], "tiktok_post", urls, async_mode)
+
     async def scrape_tiktok_comments(self, urls: List[str], async_mode: bool = False):
-        return await self._run(self.datasets["tiktok_comment"], urls, async_mode)
+        return await self._run(self.datasets["tiktok_comment"], "tiktok_comment", urls, async_mode)
 
     async def scrape_facebook_profiles(self, urls: List[str], async_mode: bool = False):
-        return await self._run(self.datasets["facebook_profile"], urls, async_mode)
+        return await self._run(self.datasets["facebook_profile"], "facebook_profile", urls, async_mode)
 
     async def scrape_facebook_posts(self, urls: List[str], async_mode: bool = False):
-        return await self._run(self.datasets["facebook_post"], urls, async_mode)
+        return await self._run(self.datasets["facebook_post"], "facebook_post", urls, async_mode)
 
     async def scrape_facebook_comments(self, urls: List[str], async_mode: bool = False):
-        return await self._run(self.datasets["facebook_comment"], urls, async_mode)
+        return await self._run(self.datasets["facebook_comment"], "facebook_comment", urls, async_mode)
 
     async def scrape_reddit_posts(self, urls: List[str], async_mode: bool = False):
-        return await self._run(self.datasets["reddit_post"], urls, async_mode)
+        return await self._run(self.datasets["reddit_post"], "reddit_post", urls, async_mode)
 
     async def scrape_reddit_comments(self, urls: List[str], async_mode: bool = False):
-        return await self._run(self.datasets["reddit_comments"], urls, async_mode)
+        return await self._run(self.datasets["reddit_comments"], "reddit_comments", urls, async_mode)
 
     async def scrape_youtube_videos(self, urls: List[str], async_mode: bool = False):
-        return await self._run(self.datasets["youtube_video"], urls, async_mode)
+        return await self._run(self.datasets["youtube_video"], "youtube_video", urls, async_mode)
 
     async def scrape_youtube_channels(self, urls: List[str], async_mode: bool = False):
-        return await self._run(self.datasets["youtube_channel"], urls, async_mode)
+        return await self._run(self.datasets["youtube_channel"], "youtube_channel", urls, async_mode)
 
     async def scrape_youtube_comments(self, urls: List[str], async_mode: bool = False):
-        return await self._run(self.datasets["youtube_comments"], urls, async_mode)
+        return await self._run(self.datasets["youtube_comments"], "youtube_comments", urls, async_mode)
 
     async def scrape_profiles(self, profiles: List[Dict[str, Any]], dataset_key: str, async_mode: bool = False) -> List[Dict[str, Any]]:
         """Scrape a batch of profile-like objects and return normalized records."""
@@ -275,7 +307,8 @@ class BrightDataAPI:
 
         urls = [profile["url"] for profile in profiles]
         dataset_id = self.datasets[dataset_key]
-        raw_results = self._run(dataset_id, urls, async_mode)
+        
+        raw_results = await self._run(dataset_id, dataset_key, urls, async_mode)
 
         if not isinstance(raw_results, list):
             raw_results = [raw_results]
@@ -293,25 +326,34 @@ class BrightDataAPI:
             )
         return normalized_results
 
-    async def _run(self, dataset_id: str, urls: List[str], async_mode: bool):
+    async def _run(
+        self,
+        dataset_id: str,
+        dataset_key: str,
+        urls: List[str],
+        async_mode: bool,
+    ):
         if async_mode or len(urls) > 20:
             snapshot_id = self._get_async(dataset_id, urls)
-            return self.wait_for_snapshot(snapshot_id)
-        return self._get_sync(dataset_id, urls)
+            result = self.wait_for_snapshot(snapshot_id)
+        else:
+            result = self._get_sync(dataset_id, urls)
+
+        if self.has_errors(result):
+            raise BrightDataRequestError(
+                f"Bright Data returned an error: {result}"
+            )
+
+        self.save_result(result, dataset_key)
+
+        return result
 
 
 async def main():
     api = BrightDataAPI()
-    urls = ["https://www.tiktok.com/@ezekielthelive/video/7621228021634108694?lang=en-GB"]
-    result = await api.scrape_tiktok_comments(urls, async_mode=False)
-
-    if not os.path.exists("./data/bronze/raw_json"):
-        os.makedirs("./data/bronze/raw_json")
-        
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    with open(f"./data/bronze/raw_json/result_{timestamp}.json", "w", encoding="utf-8") as handle:
-        json.dump(result, handle, indent=4)
+    urls = ["https://www.instagram.com/reel/C85BZjeSHuO"]
+    result = await api.scrape_instagram_reels(urls, async_mode=False)
     print(result)
-
+    
 if __name__ == "__main__":
     asyncio.run(main())
