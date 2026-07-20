@@ -10,6 +10,7 @@ import time
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List
+from urllib import response
 
 import requests
 from dotenv import load_dotenv
@@ -121,10 +122,18 @@ class BrightDataAPI:
         if len(urls) > 20:
             raise ValueError("Sync requests support up to 20 URLs. Use async mode for larger jobs.")
 
-        payload = [{"url": url} for url in urls]
-        url = f"{self.base_url}/scrape?dataset_id={dataset_id}&format={output_format}"
+        payload = {
+            "input": [{"url": url} for url in urls]
+        }
+        url = f"{self.base_url}/scrape?dataset_id={dataset_id}&include_errors=true"
 
-        return self._request_with_retries("post", url, payload)
+        response_json = self._request_with_retries("post", url, payload)
+
+        if isinstance(response_json, dict) and "snapshot_id" in response_json:
+            snapshot_id = response_json["snapshot_id"]
+            return self.wait_for_snapshot(snapshot_id)
+        
+        return response_json
 
     def _get_async(self, dataset_id: str, urls: List[str], output_format: str = "json") -> str:
         """Trigger an async BrightData request and return the snapshot id."""
@@ -133,25 +142,40 @@ class BrightDataAPI:
                 f"Dataset '{dataset_id}' is not recognized. Available datasets: {list(self.datasets.values())}"
             )
 
-        payload = [{"url": url} for url in urls]
-        url = f"{self.base_url}/trigger?dataset_id={dataset_id}&format={output_format}"
+        payload = {
+            "input": [{"url": url} for url in urls]
+        }
+        url = f"{self.base_url}/scrape?dataset_id={dataset_id}&include_errors=true"
 
         response_json = self._request_with_retries("post", url, payload)
         return response_json["snapshot_id"]
 
-    def _request_with_retries(self, method: str, url: str, payload: List[Dict[str, str]]) -> Dict[str, Any]:
+    def _request_with_retries(self, method: str, url: str, payload: Dict[str, Any]| None = None) -> Dict[str, Any]:
         last_error: Exception | None = None
         for attempt in range(self.max_retries + 1):
             try:
                 if method == "post":
-                    response = requests.post(url, headers=self.headers, json=payload, timeout=60)
+                    response = requests.post(
+                        url,
+                        headers=self.headers,
+                        json=payload,
+                        timeout=(10, 300)  # 10 sec connect, 300 sec read
+                    )
                 elif method == "get":
                     response = requests.get(url, headers=self.headers, timeout=60)
                 else:
                     raise ValueError(f"Unsupported method: {method}")
 
+                if not response.ok:
+                    raise BrightDataRequestError(f"BrightData request failed with status code {response.status_code}: {response.text}")
+
                 response.raise_for_status()
-                return response.json()
+                try:
+                    print(f"Response JSON: {response.json()}")  # Debugging line
+                    return response.json()
+                except requests.exceptions.JSONDecodeError:
+                    print(f"Response JSON: {response.json()}")  # Debugging line
+                    return [json.loads(line) for line in response.text.splitlines() if line.strip()]
             except requests.RequestException as exc:
                 last_error = exc
                 if attempt >= self.max_retries:
@@ -163,18 +187,37 @@ class BrightDataAPI:
     def get_snapshot(self, snapshot_id: str) -> Dict[str, Any]:
         """Fetch a BrightData snapshot by id."""
         url = f"{self.base_url}/snapshot/{snapshot_id}"
-        return self._request_with_retries("get", url, [])
+        return self._request_with_retries("get", url)
+    
+    def monitor_snapshot(self, snapshot_id: str) -> Dict[str, Any]:
+        """Check BrightData snapshot progress."""
+        url = f"{self.base_url}/progress/{snapshot_id}"
+        return self._request_with_retries("get", url)
 
-    def wait_for_snapshot(self, snapshot_id: str, poll_interval: int = 5) -> Any:
-        """Poll until the BrightData snapshot is ready."""
+
+    def download_snapshot(self, snapshot_id: str) -> Any:
+        """Download BrightData snapshot once ready."""
+        url = f"{self.base_url}/snapshot/{snapshot_id}"
+        return self._request_with_retries("get", url)
+
+
+    def wait_for_snapshot(self, snapshot_id: str, poll_interval: int = 5, max_wait_seconds: int = 900) -> Any:
+        start_time = time.time()
+        
         while True:
-            snapshot = self.get_snapshot(snapshot_id)
-            status = snapshot.get("status")
+            progress = self.monitor_snapshot(snapshot_id)
+            print(f"Snapshot progress: {progress}")
 
-            if status == "ready":
-                return snapshot.get("data", snapshot)
-            if status == "failed":
-                raise RuntimeError(f"Scrape failed: {snapshot}")
+            status = progress.get("status")
+
+            if status in ["ready", "completed", "done"]:
+                return self.download_snapshot(snapshot_id)
+
+            if status in ["failed", "error"]:
+                raise RuntimeError(f"Scrape failed: {progress}")
+
+            if time.time() - start_time > max_wait_seconds:
+                raise TimeoutError(f"Snapshot {snapshot_id} was not ready after {max_wait_seconds} seconds")
 
             time.sleep(poll_interval)
 
@@ -195,6 +238,9 @@ class BrightDataAPI:
 
     async def scrape_tiktok_posts(self, urls: List[str], async_mode: bool = False):
         return await self._run(self.datasets["tiktok_post"], urls, async_mode)
+    
+    async def scrape_tiktok_comments(self, urls: List[str], async_mode: bool = False):
+        return await self._run(self.datasets["tiktok_comment"], urls, async_mode)
 
     async def scrape_facebook_profiles(self, urls: List[str], async_mode: bool = False):
         return await self._run(self.datasets["facebook_profile"], urls, async_mode)
@@ -257,8 +303,8 @@ class BrightDataAPI:
 
 async def main():
     api = BrightDataAPI()
-    urls = ["https://www.instagram.com/p/Dabfs22BY-t/?hl=en"]
-    result = await api.scrape_instagram_comments(urls, async_mode=False)
+    urls = ["https://www.tiktok.com/@ezekielthelive/video/7621228021634108694?lang=en-GB"]
+    result = await api.scrape_tiktok_comments(urls, async_mode=False)
 
     if not os.path.exists("./data/bronze/raw_json"):
         os.makedirs("./data/bronze/raw_json")
