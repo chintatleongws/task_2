@@ -194,10 +194,9 @@ class BrightDataAPI:
         url = f"{self.base_url}/progress/{snapshot_id}"
         return self._request_with_retries("get", url)
 
-
     def download_snapshot(self, snapshot_id: str) -> Any:
         """Download BrightData snapshot once ready."""
-        url = f"{self.base_url}/snapshot/{snapshot_id}"
+        url = f"{self.base_url}/snapshot/{snapshot_id}?format=json"
         return self._request_with_retries("get", url)
 
 
@@ -208,7 +207,7 @@ class BrightDataAPI:
             progress = self.monitor_snapshot(snapshot_id)
             print(f"Snapshot progress: {progress}")
 
-            status = progress.get("status")
+            status = str(progress.get("status", "")).lower()
 
             if status in ["ready", "completed", "done"]:
                 return self.download_snapshot(snapshot_id)
