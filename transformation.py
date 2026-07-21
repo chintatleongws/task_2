@@ -10,6 +10,7 @@ class Transformation:
         self.posts = []
         self.comments = []
         self.videos = []
+        self.profiles = []
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
 
@@ -563,8 +564,259 @@ class Transformation:
 
                     "source_file": source_file,
                 })
-            
-        
+
+    def extract_profiles(self, data, source_file):
+        """Normalize profiles from all supported platforms."""
+
+        if not isinstance(data, list):
+            data = [data]
+
+        source_file_lower = source_file.lower()
+
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+
+            # FACEBOOK PROFILE
+            if (
+                "facebook_profile" in source_file_lower
+                or "fb_profile" in source_file_lower
+            ):
+                self.profiles.append({
+                    "platform": "facebook",
+
+                    "profile_id": item.get("id"),
+                    "profile_url": item.get("url"),
+                    "profile_handle": self.extract_handle(
+                        item.get("url")
+                    ),
+                    "profile_name": item.get("name"),
+                    "biography": (
+                        item.get("biography")
+                        or item.get("bio")
+                        or item.get("about")
+                    ),
+
+                    "followers_total": (            
+                        item.get("followers")
+                        if item.get("followers") is not None
+                        else item.get("followers_count")
+                    ),
+                    "following_total": (        # following are not scraped for facebook
+                        item.get("following")
+                        if item.get("following") is not None
+                        else item.get("following_count")
+                    ),
+                    "friends_total": (
+                        item.get("friends")
+                        if item.get("friends") is not None
+                        else item.get("friends_count")
+                    ),
+
+                    "subscribers_total": None,
+                    "posts_total": item.get("posts_count"),
+                    "videos_total": item.get("videos_count"),
+                    "likes_total": (
+                        item.get("likes")
+                        if item.get("likes") is not None
+                        else item.get("page_likes")
+                    ),
+                    "views_total": None,
+
+                    "location": (
+                        item.get("location")
+                        or item.get("city")
+                    ),
+                    "website_url": item.get("website"),
+                    "created_date": item.get("created_date"),
+
+                    "is_verified": item.get("is_verified"),
+                    "is_private": item.get("is_private"),
+                    "is_business": item.get("is_business"),
+                    "is_professional": item.get(
+                        "is_professional"
+                    ),
+
+                    "engagement_rate": item.get(
+                        "avg_engagement"
+                    ),
+
+                    "source_file": source_file,
+                })
+
+            # INSTAGRAM PROFILE
+            elif (
+                "instagram_profile" in source_file_lower
+                or "ig_profile" in source_file_lower
+            ):
+                external_url = item.get("external_url")
+
+                if isinstance(external_url, list):
+                    website_url = (
+                        external_url[0]
+                        if external_url
+                        else None
+                    )
+                else:
+                    website_url = external_url
+
+                self.profiles.append({
+                    "platform": "instagram",
+
+                    "profile_id": (
+                        item.get("id")
+                        or item.get("partner_id")
+                    ),
+                    "profile_url": (
+                        item.get("profile_url")
+                        or item.get("url")
+                    ),
+                    "profile_handle": item.get("account"),
+                    "profile_name": (
+                        item.get("profile_name")
+                        or item.get("full_name")
+                    ),
+                    "biography": item.get("biography"),
+
+                    "followers_total": item.get("followers"),
+                    "following_total": item.get("following"),
+                    "friends_total": None,
+
+                    "subscribers_total": None,
+                    "posts_total": item.get("posts_count"),
+                    "videos_total": None,
+                    "likes_total": None,
+                    "views_total": None,
+
+                    "location": item.get("business_address"),
+                    "website_url": website_url,
+                    "created_date": None,
+
+                    "is_verified": item.get("is_verified"),
+                    "is_private": item.get("is_private"),
+                    "is_business": item.get(
+                        "is_business_account"
+                    ),
+                    "is_professional": item.get(
+                        "is_professional_account"
+                    ),
+
+                    "engagement_rate": item.get(
+                        "avg_engagement"
+                    ),
+
+                    "source_file": source_file,
+                })
+
+            # TIKTOK PROFILE
+            elif (
+                "tiktok_profile" in source_file_lower
+                or "tt_profile" in source_file_lower
+            ):
+                self.profiles.append({
+                    "platform": "tiktok",
+
+                    "profile_id": item.get("id"),
+                    "profile_url": item.get("url"),
+                    "profile_handle": item.get("account_id"),
+                    "profile_name": item.get("nickname"),
+                    "biography": (
+                        item.get("biography")
+                        or item.get("signature")
+                    ),
+
+                    "followers_total": item.get("followers"),
+                    "following_total": item.get("following"),
+                    "friends_total": None,
+
+                    "subscribers_total": None,
+                    "posts_total": None,
+                    "videos_total": item.get("videos_count"),
+                    "likes_total": (
+                        item.get("likes")
+                        if item.get("likes") is not None
+                        else item.get("like_count")
+                    ),
+                    "views_total": None,
+
+                    "location": None,
+                    "website_url": item.get("bio_link"),
+                    "created_date": item.get("create_time"),
+
+                    "is_verified": item.get("is_verified"),
+                    "is_private": item.get("is_private"),
+                    "is_business": item.get(
+                        "is_commerce_user"
+                    ),
+                    "is_professional": None,
+
+                    "engagement_rate": (
+                        item.get("awg_engagement_rate")
+                        if item.get("awg_engagement_rate") is not None
+                        else item.get("avg_engagement_rate")
+                    ),
+
+                    "source_file": source_file,
+                })
+
+            # YOUTUBE CHANNEL
+            elif (
+                "youtube_channel" in source_file_lower
+                or "youtube_profile" in source_file_lower
+                or "yt_channel" in source_file_lower
+            ):
+                details = item.get("Details") or {}
+                links = item.get("Links") or []
+
+                website_url = None
+
+                if isinstance(links, list) and links:
+                    website_url = links[0]
+                elif isinstance(links, str):
+                    website_url = links
+
+                self.profiles.append({
+                    "platform": "youtube",
+
+                    "profile_id": (
+                        item.get("identifier")
+                        or item.get("id")
+                    ),
+                    "profile_url": item.get("url"),
+                    "profile_handle": (
+                        item.get("handle")
+                        or self.extract_handle(item.get("url"))
+                    ),
+                    "profile_name": item.get("name"),
+                    "biography": (
+                        item.get("Description")
+                        or item.get("description")
+                    ),
+
+                    "followers_total": None,
+                    "following_total": None,
+                    "friends_total": None,
+
+                    "subscribers_total": item.get("subscribers"),
+                    "posts_total": None,
+                    "videos_total": item.get("videos_count"),
+                    "likes_total": None,
+                    "views_total": item.get("views"),
+
+                    "location": details.get("location"),
+                    "website_url": website_url,
+                    "created_date": item.get("created_date"),
+
+                    "is_verified": item.get("is_verified"),
+                    "is_private": None,
+                    "is_business": None,
+                    "is_professional": None,
+
+                    "engagement_rate": None,
+
+                    "source_file": source_file,
+                })
+    
         
     @staticmethod
     def extract_handle(profile_url):
@@ -686,19 +938,105 @@ class Transformation:
 
         return videos_df
     
+    def process_profiles(self):
+        self.profiles = []
+
+        for file in self.bronze_folder.rglob("*.json"):
+            try:
+                data = self.parse_json(file)
+                self.extract_profiles(data, file.name)
+
+            except (json.JSONDecodeError, OSError) as error:
+                print(
+                    f"Could not process profile file "
+                    f"{file.name}: {error}"
+                )
+
+        profiles_df = pd.DataFrame(self.profiles)
+
+        if profiles_df.empty:
+            print("No profiles were extracted.")
+            return profiles_df
+
+        profiles_df = profiles_df.drop_duplicates(
+            subset=["platform", "profile_id"],
+            keep="last",
+        )
+
+        numeric_columns = [
+            "followers_total",
+            "following_total",
+            "friends_total",
+            "subscribers_total",
+            "posts_total",
+            "videos_total",
+            "likes_total",
+            "views_total",
+        ]
+
+        for column in numeric_columns:
+            profiles_df[column] = pd.to_numeric(
+                profiles_df[column],
+                errors="coerce",
+            ).astype("Int64")
+
+        profiles_df["engagement_rate"] = pd.to_numeric(
+            profiles_df["engagement_rate"],
+            errors="coerce",
+        )
+
+        profiles_df["created_date"] = pd.to_datetime(
+            profiles_df["created_date"],
+            errors="coerce",
+            utc=True,
+        )
+
+        boolean_columns = [
+            "is_verified",
+            "is_private",
+            "is_business",
+            "is_professional",
+        ]
+
+        for column in boolean_columns:
+            profiles_df[column] = profiles_df[column].astype(
+                "boolean"
+            )
+
+        self.silver_folder.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        output_path = (
+            self.silver_folder
+            / f"profiles_{self.timestamp}.csv"
+        )
+
+        profiles_df.to_csv(
+            output_path,
+            index=False,
+        )
+
+        print(
+            f"Saved profiles_{self.timestamp}.csv "
+            f"at {output_path}"
+        )
+
+        return profiles_df
+    
     def run(self):
         posts_df = self.process_posts()
         comments_df = self.process_comments()
         videos_df = self.process_videos()
+        profiles_df = self.process_profiles()
 
-        return videos_df
+        return profiles_df
 
 
 # test the Transformation class
 if __name__ == "__main__":
     transformer = Transformation()
-    videos_df = transformer.run()
+    profiles_df = transformer.run()
 
-    print(videos_df.head().to_string(index=False))
-
- 
+    print(profiles_df.head().to_string(index=False))

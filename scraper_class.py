@@ -219,16 +219,23 @@ class BrightDataAPI:
 
             time.sleep(poll_interval)
     
-    def _has_errors(self, result: Any) -> bool:
-        if not isinstance(result, list):
-            return False
+    @staticmethod
+    def _has_errors(result: Any) -> bool:
+        if isinstance(result, dict):
+            return bool(
+                result.get("error")
+                or result.get("error_code")
+            )
 
-        for item in result:
-            if (
+        if isinstance(result, list):
+            return any(
                 isinstance(item, dict)
-                and item.get("error_code")
-            ):
-                return True
+                and (
+                    item.get("error")
+                    or item.get("error_code")
+                )
+                for item in result
+            )
 
         return False
             
@@ -352,8 +359,8 @@ class BrightDataAPI:
 
 async def main():
     api = BrightDataAPI()
-    urls = ["https://www.instagram.com/reel/C5Rdyj_q7YN/"]
-    result = await api.scrape_instagram_videos(urls, async_mode=False)
+    urls = ["https://www.youtube.com/user/whitehouse"]
+    result = await api.scrape_youtube_channels(urls, async_mode=False)
     print(result)
     
 if __name__ == "__main__":
