@@ -116,6 +116,31 @@ class BrightDataAPI:
             },
         }
 
+    def infer_platform(self, url: str) -> str:
+        """Infer the social platform from a URL."""
+
+        lowered = url.lower().strip()
+
+        if "instagram.com" in lowered:
+            return "instagram"
+
+        if "facebook.com" in lowered or "fb.com" in lowered:
+            return "facebook"
+
+        if "tiktok.com" in lowered:
+            return "tiktok"
+
+        if "youtube.com" in lowered or "youtu.be" in lowered:
+            return "youtube"
+
+        if "reddit.com" in lowered or "redd.it" in lowered:
+            return "reddit"
+
+        raise ValueError(
+            f"Unable to infer platform from URL: {url}"
+        )
+
+
     def _get_sync(self, dataset_id: str, urls: List[str], output_format: str = "json") -> Dict[str, Any]:
         """Make a synchronous request to BrightData for up to 20 URLs."""
         if dataset_id not in self.datasets.values():
@@ -333,6 +358,197 @@ class BrightDataAPI:
                 }
             )
         return normalized_results
+    
+    @staticmethod
+    def normalize_entity(entity: str) -> str:
+        """Normalize entity aliases to the internal dataset name."""
+
+        aliases = {
+            "profile": "profile",
+            "profiles": "profile",
+
+            "channel": "channel",
+            "channels": "channel",
+
+            "post": "post",
+            "posts": "post",
+
+            "video": "video",
+            "videos": "video",
+
+            "comment": "comment",
+            "comments": "comment",
+        }
+
+        normalized = aliases.get(entity.lower().strip())
+
+        if normalized is None:
+            raise ValueError(
+                f"Unsupported entity '{entity}'. "
+                f"Expected profile, post, video, or comments."
+            )
+
+        return normalized
+    
+    def resolve_dataset_key(
+        self,
+        platform: str,
+        entity: str,
+    ) -> str:
+        """Resolve a platform/entity pair to a Bright Data dataset key."""
+
+        entity = self.normalize_entity(entity)
+
+        dataset_routes = {
+            # Instagram
+            ("instagram", "profile"): "instagram_profile",
+            ("instagram", "post"): "instagram_post",
+            ("instagram", "video"): "instagram_video",
+            ("instagram", "comment"): "instagram_comment",
+
+            # Facebook
+            ("facebook", "profile"): "facebook_profile",
+            ("facebook", "post"): "facebook_post",
+            ("facebook", "video"): "facebook_post",
+            ("facebook", "comment"): "facebook_comment",
+
+            # TikTok
+            ("tiktok", "profile"): "tiktok_profile",
+            ("tiktok", "video"): "tiktok_video",
+            ("tiktok", "post"): "tiktok_video",
+            ("tiktok", "comment"): "tiktok_comment",
+
+            # YouTube
+            ("youtube", "profile"): "youtube_channel",
+            ("youtube", "channel"): "youtube_channel",
+            ("youtube", "video"): "youtube_video",
+            ("youtube", "post"): "youtube_video",
+            ("youtube", "comment"): "youtube_comments",
+
+            # Reddit
+            ("reddit", "post"): "reddit_post",
+            ("reddit", "comment"): "reddit_comments",
+        }
+
+        dataset_key = dataset_routes.get((platform, entity))
+
+        if dataset_key is None:
+            raise ValueError(
+                f"Entity '{entity}' is not supported for "
+                f"platform '{platform}'."
+            )
+
+        if dataset_key not in self.datasets:
+            raise ValueError(
+                f"Dataset '{dataset_key}' is not configured."
+            )
+
+        return dataset_key
+    
+    async def scrape(
+        self,
+        urls: List[str],
+        entity: str,
+        async_mode: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Scrape mixed-platform URLs for a requested entity.
+
+        Example:
+            await api.scrape(urls, entity="comments")
+        """
+
+        if not urls:
+            return {
+                "results": {},
+                "rejected": [],
+            }
+
+        entity = self.normalize_entity(entity)
+
+        grouped_urls: Dict[str, List[str]] = {}
+        rejected: List[Dict[str, str]] = []
+
+        for url in urls:
+            try:
+                platform = self.infer_platform(url)
+
+                dataset_key = self.resolve_dataset_key(
+                    platform=platform,
+                    entity=entity,
+                )
+
+                grouped_urls.setdefault(
+                    dataset_key,
+                    [],
+                ).append(url)
+
+            except ValueError as error:
+                rejected.append({
+                    "url": url,
+                    "error": str(error),
+                })
+
+        async def scrape_group(
+            dataset_key: str,
+            dataset_urls: List[str],
+        ):
+            try:
+                result = await self._run(
+                    dataset_id=self.datasets[dataset_key],
+                    dataset_key=dataset_key,
+                    urls=dataset_urls,
+                    async_mode=async_mode,
+                )
+
+                return dataset_key, {
+                    "status": "success",
+                    "urls": dataset_urls,
+                    "records": result,
+                }
+
+            except Exception as error:
+                return dataset_key, {
+                    "status": "failed",
+                    "urls": dataset_urls,
+                    "error": str(error),
+                }
+
+        tasks = [
+            scrape_group(dataset_key, dataset_urls)
+            for dataset_key, dataset_urls
+            in grouped_urls.items()
+        ]
+
+        completed_groups = await asyncio.gather(*tasks)
+
+        return {
+            "entity": entity,
+            "results": dict(completed_groups),
+            "rejected": rejected,
+        }
+        
+    @staticmethod
+    def _split_results(result: Any) -> tuple[list[dict], list[dict]]:
+        records = result if isinstance(result, list) else [result]
+
+        valid_records = []
+        error_records = []
+
+        for item in records:
+            if not isinstance(item, dict):
+                error_records.append({
+                    "error": "Unexpected response type",
+                    "raw_result": item,
+                })
+                continue
+
+            if item.get("error") or item.get("error_code"):
+                error_records.append(item)
+            else:
+                valid_records.append(item)
+
+        return valid_records, error_records
 
     async def _run(
         self,
@@ -347,20 +563,29 @@ class BrightDataAPI:
         else:
             result = self._get_sync(dataset_id, urls)
 
-        if self._has_errors(result):
-            raise BrightDataRequestError(
-                f"Bright Data returned an error: {result}"
+        valid_records, error_records = self._split_results(result)
+
+        # Save only successful records.
+        if valid_records:
+            self._save_result(
+                valid_records,
+                dataset_key,
             )
 
-        self._save_result(result, dataset_key)
-
-        return result
+        return {
+            "records": valid_records,
+            "errors": error_records,
+            "records_count": len(valid_records),
+            "errors_count": len(error_records),
+        }
 
 
 async def main():
     api = BrightDataAPI()
-    urls = ["https://www.youtube.com/user/whitehouse"]
-    result = await api.scrape_youtube_channels(urls, async_mode=False)
+    urls = ["https://www.youtube.com/user/whitehouse", "https://www.youtube.com/watch?v=dQw4w9WgXcQ"]
+    # you need to bundle the urls into a list and pass it to the scrape method, 
+    # list of urls need to be the same entity type, e.g. all profiles, all posts, etc.
+    result = await api.scrape(urls, entity="profile", async_mode=False)
     print(result)
     
 if __name__ == "__main__":
