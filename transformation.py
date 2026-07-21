@@ -147,7 +147,7 @@ class Transformation:
         return posts_df
 
 
-transformer = Transformation()
-posts_df = transformer.run()
-
-print(posts_df.head().to_string(index=False))
+if __name__ == "__main__":
+    transformer = Transformation()
+    posts_df = transformer.run()
+    print(posts_df.head().to_string(index=False))
