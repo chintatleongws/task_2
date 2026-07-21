@@ -58,13 +58,14 @@ class BrightDataAPI:
             "Content-Type": "application/json",
         }
 
+        # tiktok post, instagram reels and youtube videos are all referred to as "video" to avoid confusion
         self.datasets = {
             "instagram_profile": "gd_l1vikfch901nx3by4",
             "instagram_post": "gd_lk5ns7kz21pck8jpis",
             "instagram_comment": "gd_ltppn085pokosxh13",
-            "instagram_reel": "gd_lyclm20il4r5helnj",
+            "instagram_video": "gd_lyclm20il4r5helnj",
             "tiktok_profile": "gd_l1villgoiiidt09ci",
-            "tiktok_post": "gd_lu702nij2f790tmv9h",
+            "tiktok_video": "gd_lu702nij2f790tmv9h",
             "tiktok_comment": "gd_lkf2st302ap89utw5k",
             "facebook_profile": "gd_mf0urb782734ik94dz",
             "facebook_post": "gd_lyclm1571iy3mv57zw",
@@ -92,7 +93,7 @@ class BrightDataAPI:
         if "youtube.com" in lowered or "youtu.be" in lowered:
             return "youtube_video"
         if "tiktok.com" in lowered:
-            return "tiktok_post"
+            return "tiktok_video"
         raise ValueError(f"Unable to infer dataset for URL '{url}'.")
 
     def build_job_payload(self, urls: List[str], dataset_key: str | None = None, job_id: str = "job") -> Dict[str, Any]:
@@ -134,7 +135,7 @@ class BrightDataAPI:
 
         if isinstance(response_json, dict) and "snapshot_id" in response_json:
             snapshot_id = response_json["snapshot_id"]
-            return self.wait_for_snapshot(snapshot_id)
+            return self._wait_for_snapshot(snapshot_id)
         
         return response_json
 
@@ -187,28 +188,28 @@ class BrightDataAPI:
 
         raise BrightDataRequestError(f"BrightData request failed after {self.max_retries} retries: {last_error}") from last_error
     
-    def monitor_snapshot(self, snapshot_id: str) -> Dict[str, Any]:
+    def _monitor_snapshot(self, snapshot_id: str) -> Dict[str, Any]:
         """Check BrightData snapshot progress."""
         url = f"{self.base_url}/progress/{snapshot_id}"
         return self._request_with_retries("get", url)
 
-    def download_snapshot(self, snapshot_id: str) -> Any:
+    def _download_snapshot(self, snapshot_id: str) -> Any:
         """Download BrightData snapshot once ready."""
         url = f"{self.base_url}/snapshot/{snapshot_id}?format=json"
         return self._request_with_retries("get", url)
 
 
-    def wait_for_snapshot(self, snapshot_id: str, poll_interval: int = 5, max_wait_seconds: int = 900) -> Any:
+    def _wait_for_snapshot(self, snapshot_id: str, poll_interval: int = 5, max_wait_seconds: int = 900) -> Any:
         start_time = time.time()
         
         while True:
-            progress = self.monitor_snapshot(snapshot_id)
+            progress = self._monitor_snapshot(snapshot_id)
             print(f"Snapshot progress: {progress}")
 
             status = str(progress.get("status", "")).lower()
 
             if status in ["ready", "completed", "done"]:
-                return self.download_snapshot(snapshot_id)
+                return self._download_snapshot(snapshot_id)
 
             if status in ["failed", "error"]:
                 raise RuntimeError(f"Scrape failed: {progress}")
@@ -218,7 +219,7 @@ class BrightDataAPI:
 
             time.sleep(poll_interval)
     
-    def has_errors(self, result: Any) -> bool:
+    def _has_errors(self, result: Any) -> bool:
         if not isinstance(result, list):
             return False
 
@@ -231,7 +232,7 @@ class BrightDataAPI:
 
         return False
             
-    def save_result(self, result: Any, dataset_key: str):
+    def _save_result(self, result: Any, dataset_key: str):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
         if "comment" in dataset_key:
@@ -261,14 +262,14 @@ class BrightDataAPI:
     async def scrape_instagram_comments(self, urls: List[str], async_mode: bool = False):
         return await self._run(self.datasets["instagram_comment"], "instagram_comment", urls, async_mode)
 
-    async def scrape_instagram_reels(self, urls: List[str], async_mode: bool = False):
-        return await self._run(self.datasets["instagram_reel"], "instagram_reel", urls, async_mode)
+    async def scrape_instagram_videos(self, urls: List[str], async_mode: bool = False):
+        return await self._run(self.datasets["instagram_video"], "instagram_video", urls, async_mode)
 
     async def scrape_tiktok_profiles(self, urls: List[str], async_mode: bool = False):
         return await self._run(self.datasets["tiktok_profile"], "tiktok_profile", urls, async_mode)
 
-    async def scrape_tiktok_posts(self, urls: List[str], async_mode: bool = False):
-        return await self._run(self.datasets["tiktok_post"], "tiktok_post", urls, async_mode)
+    async def scrape_tiktok_videos(self, urls: List[str], async_mode: bool = False):
+        return await self._run(self.datasets["tiktok_video"], "tiktok_video", urls, async_mode)
 
     async def scrape_tiktok_comments(self, urls: List[str], async_mode: bool = False):
         return await self._run(self.datasets["tiktok_comment"], "tiktok_comment", urls, async_mode)
@@ -335,24 +336,24 @@ class BrightDataAPI:
     ):
         if async_mode or len(urls) > 20:
             snapshot_id = self._get_async(dataset_id, urls)
-            result = self.wait_for_snapshot(snapshot_id)
+            result = self._wait_for_snapshot(snapshot_id)
         else:
             result = self._get_sync(dataset_id, urls)
 
-        if self.has_errors(result):
+        if self._has_errors(result):
             raise BrightDataRequestError(
                 f"Bright Data returned an error: {result}"
             )
 
-        self.save_result(result, dataset_key)
+        self._save_result(result, dataset_key)
 
         return result
 
 
 async def main():
     api = BrightDataAPI()
-    urls = ["https://www.instagram.com/reel/C85BZjeSHuO"]
-    result = await api.scrape_instagram_reels(urls, async_mode=False)
+    urls = ["https://www.instagram.com/reel/C5Rdyj_q7YN/"]
+    result = await api.scrape_instagram_videos(urls, async_mode=False)
     print(result)
     
 if __name__ == "__main__":
