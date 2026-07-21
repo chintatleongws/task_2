@@ -220,3 +220,6 @@ __marimo__/
 # poetry 
 poetry.lock
 .env
+
+# Data files
+./data/silver/*
