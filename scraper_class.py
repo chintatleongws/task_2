@@ -582,7 +582,7 @@ class BrightDataAPI:
 
 async def main():
     api = BrightDataAPI()
-    urls = ["https://www.youtube.com/user/whitehouse", "https://www.youtube.com/watch?v=dQw4w9WgXcQ"]
+    urls = ["https://www.youtube.com/user/whitehouse", "https://www.instagram.com/zuck"]
     # you need to bundle the urls into a list and pass it to the scrape method, 
     # list of urls need to be the same entity type, e.g. all profiles, all posts, etc.
     result = await api.scrape(urls, entity="profile", async_mode=False)
