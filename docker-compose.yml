@@ -23,7 +23,7 @@ services:
     command: ["python", "-m", "worker"]
     environment:
       BRIGHTDATA_API_KEY: ${BRIGHTDATA_API_KEY}
-      STORAGE_MODE: ${STORAGE_MODE}
+      BRONZE_PATH: /app/data/bronze/raw_json
       DB_HOST: database
       DB_PORT: 5432
       DB_NAME: scraper_db
@@ -37,7 +37,7 @@ services:
       SQS_QUEUE_URL: http://localstack:4566/000000000000/test-queue
       S3_BUCKET: test-bucket
     volumes:
-      - ./data:/scraper/data
+      - ./data:/app/data
     depends_on:
       database:
         condition: service_healthy
@@ -63,4 +63,3 @@ services:
       start_period: 10s
 volumes:
   db_data:
-

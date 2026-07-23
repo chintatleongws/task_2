@@ -52,20 +52,16 @@ The scraper reads the following environment variables:
 | Variable | Required | Default | Purpose |
 |---|---:|---|---|
 | `BRIGHTDATA_API_KEY` | Yes | None | Bearer token used for Bright Data requests |
-| `STORAGE_MODE` | No | `local` | Selects `local`, `s3`, `gcs`, or `azure` |
+| `BRONZE_PATH` | No | `./data/bronze/raw_json` | Local directory for raw JSON |
 
 For local use, a `.env` file can contain:
 
 ```dotenv
 BRIGHTDATA_API_KEY=your-api-key
-STORAGE_MODE=local
+BRONZE_PATH=./data/bronze/raw_json
 ```
 
 Do not commit real API keys.
-
-Although cloud storage modes are declared, `_save_result()` currently uses
-`os.makedirs()` and Python's local `open()`. Only `STORAGE_MODE=local` is
-implemented end to end.
 
 ## Scraper: `BrightDataAPI`
 
@@ -87,6 +83,7 @@ api = BrightDataAPI(
     api_key="optional-explicit-key",
     max_retries=3,
     retry_delay=2.0,
+    storage_path="./data/bronze/raw_json",
 )
 ```
 
@@ -124,6 +121,29 @@ Accepted entity aliases are singular or plural forms of:
 are rejected by the generic interface.
 
 ### Recommended interface: `scrape()`
+
+Run the scraper directly from the command line:
+
+```bash
+poetry run python scraper_class.py \
+  --entity profile \
+  --url "https://www.facebook.com/zuck/"
+```
+
+Repeat `--url` for a same-entity batch:
+
+```bash
+poetry run python scraper_class.py \
+  --entity profile \
+  --url "https://www.facebook.com/zuck/" \
+  --url "https://www.instagram.com/zuck/" \
+  --url "https://www.youtube.com/@MrBeast"
+```
+
+The command prints the result summary and automatically saves successful raw
+records in the configured bronze directory.
+
+The same interface can be called from Python:
 
 ```python
 from scraper_class import BrightDataAPI
@@ -199,22 +219,20 @@ application metadata:
       "urls": [
         "https://www.facebook.com/zuck/"
       ],
-      "records": {
-        "records": [
-          {
-            "url": "https://www.facebook.com/zuck/",
-            "name": "Mark Zuckerberg",
-            "id": "4",
-            "location": "Palo Alto, California",
-            "input": {
-              "url": "https://www.facebook.com/zuck/"
-            }
+      "records": [
+        {
+          "url": "https://www.facebook.com/zuck/",
+          "name": "Mark Zuckerberg",
+          "id": "4",
+          "location": "Palo Alto, California",
+          "input": {
+            "url": "https://www.facebook.com/zuck/"
           }
-        ],
-        "errors": [],
-        "records_count": 1,
-        "errors_count": 0
-      }
+        }
+      ],
+      "errors": [],
+      "records_count": 1,
+      "errors_count": 0
     }
   },
   "rejected": []
@@ -224,11 +242,10 @@ application metadata:
 The empty `errors` and `rejected` collections are added by this project's
 adapter; they are not fields in the successful Bright Data record.
 
-The outer `records` property is the result envelope returned by `_run()`.
-Consequently, the successful Bright Data records are found at:
+Successful Bright Data records are found at:
 
 ```python
-result["results"][dataset_key]["records"]["records"]
+result["results"][dataset_key]["records"]
 ```
 
 An `error` string is only added to a dataset group when that complete group
@@ -244,8 +261,9 @@ comments; platform detection and dataset selection happen automatically.
 
 ### Request processing
 
-`_run()` passes each dataset group to `_submit_scrape()`. That method submits
-the URL payload and handles either possible Bright Data response:
+`_run()` splits each dataset group into batches of at most 20 URLs and passes
+each batch to `_submit_scrape()`. That method handles either possible Bright
+Data response:
 
 - Immediate records are returned directly.
 - A response containing `snapshot_id` is polled until its records are ready.
@@ -281,7 +299,7 @@ For local storage, all raw files are written directly to
 `data/bronze/raw_json`. File names follow:
 
 ```text
-<dataset_key>_<YYYYMMDD_HHMMSS>.json
+<dataset_key>_<YYYYMMDD_HHMMSS_microseconds>.json
 ```
 
 Posts, comments, videos, and profiles share this flat bronze directory. The
@@ -353,11 +371,11 @@ from transformation import Transformation
 
 transformer = Transformation(
     base_folder_path="./data/bronze/raw_json",
+    silver_folder_path="./data/silver",
 )
 ```
 
-The input folder can be changed, but the silver output directory is currently
-fixed at `./data/silver`.
+Both the bronze input and silver output directories can be configured.
 
 One timestamp is generated when the object is constructed and reused for all
 CSV files produced by that object.
@@ -371,13 +389,14 @@ This is a critical input contract:
 
 | Entity | Recognized filename fragments |
 |---|---|
-| Facebook posts | `fb_post` |
-| Instagram posts | `ig_post` |
-| Reddit posts | `re_post` |
+| Facebook posts | `facebook_post`, `fb_post` |
+| Instagram posts | `instagram_post`, `ig_post` |
+| Reddit posts | `reddit_post`, `re_post` |
 | Facebook comments | `facebook_comment`, `fb_comment` |
 | Instagram comments | `instagram_comment`, `ig_comment` |
 | TikTok comments | `tiktok_comment`, `tt_comment` |
 | Reddit comments | `reddit_comment`, `re_comment` |
+| YouTube comments | `youtube_comments`, `youtube_comment`, `yt_comment` |
 | TikTok videos | `tiktok_video`, `tt_video`, `tiktok_post` |
 | Instagram videos | `instagram_video`, `ig_video`, `instagram_reel`, `ig_reel` |
 | YouTube videos | `youtube_video`, `yt_video` |
@@ -401,18 +420,18 @@ Or from Python:
 
 ```python
 transformer = Transformation()
-profiles_df = transformer.run()
+outputs = transformer.run()
+
+posts_df = outputs["posts"]
+comments_df = outputs["comments"]
+videos_df = outputs["videos"]
+profiles_df = outputs["profiles"]
+errors = outputs["errors"]
 ```
 
-`run()` calls, in order:
-
-1. `process_posts()`
-2. `process_comments()`
-3. `process_videos()`
-4. `process_profiles()`
-
-All four CSVs are written, but the method currently returns only the profiles
-DataFrame.
+`run()` parses every top-level bronze JSON file once, dispatches it to the four
+entity extractors, writes all four CSVs, and returns every DataFrame plus a
+structured error list.
 
 Individual entity pipelines can also be called:
 
@@ -423,24 +442,21 @@ videos_df = transformer.process_videos()
 profiles_df = transformer.process_profiles()
 ```
 
-When calling an individual processor repeatedly on the same object, note that
-posts, comments, and videos are not reset at the beginning of processing.
-`process_profiles()` does reset `self.profiles`.
+Each individual processor resets its own record collection before reading
+files, so repeated calls on the same transformer do not retain old state.
 
 ### Input discovery
 
-The processors do not all scan directories in the same way:
+All processors use the flat bronze directory:
 
 | Processor | File search |
 |---|---|
 | Posts | `bronze_folder.glob("*.json")` |
 | Comments | `bronze_folder.glob("*.json")` |
 | Videos | `bronze_folder.glob("*.json")` |
-| Profiles | `bronze_folder.rglob("*.json")` |
+| Profiles | `bronze_folder.glob("*.json")` |
 
-Only profiles search nested directories. Posts, comments, and videos read JSON
-files immediately inside the bronze directory. With the project's flat bronze
-layout, all four processors can discover their input files.
+`run()` shares one scan and one JSON parse across all four extractors.
 
 ### Posts
 
@@ -459,12 +475,14 @@ The normalized post schema is:
 Facebook's `num_likes_type` collection is expanded by
 `facebook_reactions()` into individual reaction columns.
 
-Posts are de-duplicated by `(platform, post_id)`. The default pandas behavior
-keeps the first duplicate.
+Posts are de-duplicated by `(platform, post_id)`, keeping the last matching
+record. Rows with missing IDs are retained rather than collapsed together.
 
 ### Comments
 
-`extract_comments()` supports Facebook, Instagram, TikTok, and Reddit.
+`extract_comments()` supports Facebook, Instagram, TikTok, Reddit, and YouTube.
+The YouTube mapping accepts the field aliases shown in Bright Data's
+[official comments response examples](https://docs.brightdata.com/api-reference/scrapers/social-media-apis/youtube-comments-collect-by-url).
 
 The normalized comment schema is:
 
@@ -482,8 +500,8 @@ Nested TikTok and Reddit replies are flattened into their own comment rows.
 Their parent and root identifiers preserve thread relationships where source
 data makes those identifiers available.
 
-Comments are de-duplicated by `(platform, comment_id)`, keeping the first
-duplicate.
+Comments are de-duplicated by `(platform, comment_id)`, keeping the last
+duplicate. Rows with missing IDs are retained.
 
 ### Videos
 
@@ -501,7 +519,8 @@ The normalized video schema is:
 | Flags | `is_verified`, `is_sponsored` |
 | Lineage | `source_file` |
 
-Videos are de-duplicated by `(platform, video_id)`, keeping the last duplicate.
+Videos are de-duplicated by `(platform, video_id)`, keeping the last duplicate;
+rows with missing IDs are retained.
 `date_posted` is converted to a UTC-aware pandas datetime, while `is_verified`
 and `is_sponsored` are converted to pandas' nullable Boolean type.
 
@@ -521,7 +540,7 @@ The normalized profile schema is:
 | Lineage | `source_file` |
 
 Profiles are de-duplicated by `(platform, profile_id)`, keeping the last
-duplicate.
+duplicate; rows with missing IDs are retained.
 
 Metric columns are converted to nullable `Int64`, `engagement_rate` is converted
 to numeric, and `created_date` becomes a UTC-aware pandas datetime. Profile
@@ -543,10 +562,10 @@ flags use pandas' nullable Boolean type.
 Output files use the timestamp created with the transformer:
 
 ```text
-data/silver/posts_<YYYYMMDD_HHMMSS>.csv
-data/silver/comments_<YYYYMMDD_HHMMSS>.csv
-data/silver/videos_<YYYYMMDD_HHMMSS>.csv
-data/silver/profiles_<YYYYMMDD_HHMMSS>.csv
+data/silver/posts_<YYYYMMDD_HHMMSS_microseconds>.csv
+data/silver/comments_<YYYYMMDD_HHMMSS_microseconds>.csv
+data/silver/videos_<YYYYMMDD_HHMMSS_microseconds>.csv
+data/silver/profiles_<YYYYMMDD_HHMMSS_microseconds>.csv
 ```
 
 Every normalized table includes `source_file` for bronze-to-silver lineage.
@@ -568,10 +587,11 @@ scrape_summary = api.scrape(
 )
 
 transformer = Transformation()
-profiles_df = transformer.process_profiles()
+outputs = transformer.run()
 
 print(scrape_summary)
-print(profiles_df.head())
+print(outputs["profiles"].head())
+print(outputs["errors"])
 ```
 
 The scraper writes an `instagram_profile_<timestamp>.json` file. That filename
@@ -601,25 +621,29 @@ the queue path are therefore not yet one continuous end-to-end pipeline.
 
 These points describe current behavior and are useful targets for future work:
 
-1. **Post filename mismatch.** The scraper saves keys such as
-   `facebook_post`, `instagram_post`, and `reddit_post`, while
-   `extract_posts()` only recognizes `fb_post`, `ig_post`, and `re_post`.
-2. **Sequential dataset groups.** Mixed-platform dataset groups are processed
+1. **Sequential dataset groups.** Mixed-platform dataset groups are processed
    one at a time. There is no concurrent HTTP execution.
-3. **Partial retry behavior.** Explicit non-success HTTP responses raise
-   `BrightDataRequestError`, which is not caught by the retry handler that only
-   catches `requests.RequestException`.
-4. **JSON fallback behavior.** The JSON decoding exception handler calls
-   `response.json()` a second time before attempting line-by-line parsing.
-5. **Cloud paths are placeholders.** The save implementation uses local
-   filesystem functions for every storage mode.
-6. **Possible file collisions.** Bronze filenames have one-second timestamp
-   precision, so same-dataset writes within one second can overwrite a file.
-7. **Empty transformation edge cases.** Some processors assume expected columns
-   exist. If no matching records are extracted, de-duplication or type
-   conversion can raise `KeyError`.
-8. **`run()` returns one table.** All four entity CSVs are created, but only the
-    profiles DataFrame is returned.
+2. **URL-only inference is necessarily limited.** A post/video URL is also the
+   input to many comment datasets, so `infer_dataset_key()` cannot infer
+   comments from the URL alone. Queue jobs should supply an explicit dataset key
+   when the entity is known.
+3. **Filename-driven transformation.** Extractor selection still depends on the
+   canonical dataset key appearing in the bronze filename. Renaming raw files
+   without preserving that key can make them unrecognizable.
+4. **Queue integration is incomplete.** The worker records queue payloads in
+   S3/LocalStack but does not yet execute `BrightDataAPI.scrape()`.
+
+## Tests
+
+The regression suite uses pytest and makes no real Bright Data requests:
+
+```bash
+poetry run pytest -v
+```
+
+It covers URL routing, retry behavior, JSON/NDJSON responses, canonical bronze
+filenames, YouTube comments, empty inputs, missing IDs, state reset, malformed
+JSON, and single-pass parsing.
 
 ## Extension checklist
 

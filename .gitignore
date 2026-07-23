@@ -223,3 +223,4 @@ poetry.lock
 
 # Data files
 ./data/silver/*
+./data/bronze/*     # untrack this in production, but keep it in development for testing purposes

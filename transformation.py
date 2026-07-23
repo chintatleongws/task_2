@@ -1,24 +1,66 @@
 import json
-from pathlib import Path
-import pandas as pd
+import logging
 from datetime import datetime
+from pathlib import Path
+
+import pandas as pd
+
+logger = logging.getLogger(__name__)
+
 
 class Transformation:
-    def __init__(self, base_folder_path="./data/bronze/raw_json"):
+    POST_COLUMNS = [
+        "platform", "post_id", "post_url", "author_id", "author_name",
+        "author_handle", "author_url", "content", "title", "date_posted",
+        "impressions_total", "impressions_upvotes", "impressions_like",
+        "impressions_love", "impressions_care", "impressions_wow",
+        "impressions_haha", "impressions_angry", "impressions_sad",
+        "comments_total", "shares_total", "post_type", "is_sponsored",
+        "community_name", "source_file",
+    ]
+    COMMENT_COLUMNS = [
+        "platform", "comment_id", "comment_url", "post_id", "post_url",
+        "author_id", "author_name", "author_handle", "author_url",
+        "comment_text", "date_posted", "engagement_likes", "replies_total",
+        "parent_comment_id", "root_comment_id", "is_reply", "source_file",
+    ]
+    VIDEO_COLUMNS = [
+        "platform", "video_id", "post_url", "media_url", "author_id",
+        "author_name", "author_handle", "author_url", "title", "description",
+        "date_posted", "duration_seconds", "views_total", "likes_total",
+        "comments_total", "shares_total", "saves_total", "audio_title",
+        "audio_artist", "post_type", "is_verified", "is_sponsored",
+        "source_file",
+    ]
+    PROFILE_COLUMNS = [
+        "platform", "profile_id", "profile_url", "profile_handle",
+        "profile_name", "biography", "followers_total", "following_total",
+        "friends_total", "subscribers_total", "posts_total", "videos_total",
+        "likes_total", "views_total", "location", "website_url",
+        "created_date", "is_verified", "is_private", "is_business",
+        "is_professional", "engagement_rate", "source_file",
+    ]
+
+    def __init__(
+        self,
+        base_folder_path="./data/bronze/raw_json",
+        silver_folder_path="./data/silver",
+    ):
         self.bronze_folder = Path(base_folder_path)
-        self.silver_folder = Path("./data/silver")
+        self.silver_folder = Path(silver_folder_path)
         self.posts = []
         self.comments = []
         self.videos = []
         self.profiles = []
-        self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        
+        self.errors = []
+        self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
 
     def parse_json(self, file_path):
         with open(file_path, "r", encoding="utf-8") as f:
             return json.load(f)
         
-    def facebook_reactions(self, item):
+    @staticmethod
+    def facebook_reactions(item):
         reactions = {
             "impressions_like": None,
             "impressions_love": None,
@@ -30,6 +72,9 @@ class Transformation:
         }
         
         for reaction in item.get("num_likes_type") or []:
+            if not isinstance(reaction, dict):
+                continue
+
             reaction_type = reaction.get("type", "").lower()
             count = reaction.get("num")
 
@@ -45,11 +90,17 @@ class Transformation:
             data = [data]
 
         for item in data:
+            if not isinstance(item, dict):
+                continue
+
             source_file_lower = source_file.lower()
             reactions = self.facebook_reactions(item)
 
             # FACEBOOK POST
-            if "fb_post" in source_file_lower:
+            if (
+                "facebook_post" in source_file_lower
+                or "fb_post" in source_file_lower
+            ):
                 self.posts.append({
                     "platform": "facebook",
                     "post_id": item.get("post_id"),
@@ -72,7 +123,10 @@ class Transformation:
                 })
 
             # INSTAGRAM POST
-            elif "ig_post" in source_file_lower:
+            elif (
+                "instagram_post" in source_file_lower
+                or "ig_post" in source_file_lower
+            ):
                 self.posts.append({
                     "platform": "instagram",
                     "post_id": item.get("post_id") or item.get("pk"),
@@ -109,7 +163,10 @@ class Transformation:
                 })
 
             # REDDIT POST
-            elif "re_post" in source_file_lower:
+            elif (
+                "reddit_post" in source_file_lower
+                or "re_post" in source_file_lower
+            ):
                 self.posts.append({
                     "platform": "reddit",
                     "post_id": item.get("post_id"),
@@ -149,6 +206,8 @@ class Transformation:
         source_file_lower = source_file.lower()
 
         for item in data:
+            if not isinstance(item, dict):
+                continue
 
             # FACEBOOK COMMENTS
             if (
@@ -256,6 +315,9 @@ class Transformation:
 
                 # Normalize nested TikTok replies as comment rows.
                 for reply in item.get("replies") or []:
+                    if not isinstance(reply, dict):
+                        continue
+
                     reply_id = (
                         reply.get("comment_id")
                         or reply.get("reply_id")
@@ -323,12 +385,19 @@ class Transformation:
                 root_id = self.clean_reddit_id(
                     item.get("root_comment_id")
                 )
+                parent_id = self.clean_reddit_id(
+                    item.get("parent_comment_id")
+                )
 
                 post_id = item.get("post_id") or root_id
 
+                input_data = item.get("input") or {}
+                if not isinstance(input_data, dict):
+                    input_data = {}
+
                 post_url = (
                     item.get("post_url")
-                    or (item.get("input") or {}).get("url")
+                    or input_data.get("url")
                 )
 
                 self.comments.append({
@@ -352,18 +421,19 @@ class Transformation:
                     "engagement_likes": item.get("num_upvotes"),
                     "replies_total": item.get("num_replies"),
 
-                    "parent_comment_id": self.clean_reddit_id(
-                        item.get("parent_comment_id")
-                    ),
+                    "parent_comment_id": parent_id,
                     "root_comment_id": root_id,
 
-                    "is_reply": False,
+                    "is_reply": bool(parent_id),
 
                     "source_file": source_file,
                 })
 
                 # Normalize nested Reddit replies as comment rows.
                 for reply in item.get("replies") or []:
+                    if not isinstance(reply, dict):
+                        continue
+
                     reply_id = reply.get("reply_id")
 
                     self.comments.append({
@@ -391,6 +461,54 @@ class Transformation:
 
                         "source_file": source_file,
                     })
+
+            # YOUTUBE COMMENTS
+            elif (
+                "youtube_comments" in source_file_lower
+                or "youtube_comment" in source_file_lower
+                or "yt_comment" in source_file_lower
+            ):
+                author_url = (
+                    item.get("user_channel")
+                    or item.get("comment_user_url")
+                )
+
+                self.comments.append({
+                    "platform": "youtube",
+                    "comment_id": item.get("comment_id"),
+                    "comment_url": item.get("comment_url"),
+                    "post_id": item.get("video_id"),
+                    "post_url": item.get("url"),
+                    "author_id": item.get("user_id"),
+                    "author_name": (
+                        item.get("username")
+                        or item.get("comment_user")
+                    ),
+                    "author_handle": self.extract_handle(author_url),
+                    "author_url": author_url,
+                    "comment_text": (
+                        item.get("comment_text")
+                        or item.get("comment")
+                    ),
+                    "date_posted": (
+                        item.get("date")
+                        or item.get("comment_date")
+                    ),
+                    "engagement_likes": (
+                        item.get("likes")
+                        if item.get("likes") is not None
+                        else item.get("num_likes")
+                    ),
+                    "replies_total": (
+                        item.get("replies")
+                        if item.get("replies") is not None
+                        else item.get("num_replies")
+                    ),
+                    "parent_comment_id": None,
+                    "root_comment_id": None,
+                    "is_reply": False,
+                    "source_file": source_file,
+                })
                     
     def extract_videos(self, data, source_file):
         """ Normalize videos from all supported platforms."""
@@ -398,6 +516,9 @@ class Transformation:
             data = [data]
 
         for item in data:
+            if not isinstance(item, dict):
+                continue
+
             source_file_lower = source_file.lower()
 
             # TIKTOK VIDEO
@@ -407,6 +528,8 @@ class Transformation:
                 or "tiktok_post" in source_file_lower
             ):
                 music = item.get("music") or {}
+                if not isinstance(music, dict):
+                    music = {}
 
                 self.videos.append({
                     "platform": "tiktok",
@@ -442,7 +565,8 @@ class Transformation:
                     "comments_total": item.get("comment_count"),
                     "shares_total": (
                         item.get("share_count")
-                        or item.get("num_share_count")
+                        if item.get("share_count") is not None
+                        else item.get("num_share_count")
                     ),
                     "saves_total": item.get("collect_count"),
 
@@ -522,6 +646,8 @@ class Transformation:
                 or "yt_video" in source_file_lower
             ):
                 music = item.get("music") or {}
+                if not isinstance(music, dict):
+                    music = {}
 
                 self.videos.append({
                     "platform": "youtube",
@@ -536,6 +662,7 @@ class Transformation:
                     "author_id": item.get("youtuber_id"),
                     "author_name": (
                         item.get("handle_name")
+                        or item.get("channel_name")
                         or item.get("youtuber")
                     ),
                     "author_handle": item.get("youtuber"),
@@ -547,7 +674,10 @@ class Transformation:
                     "title": item.get("title"),
                     "description": item.get("description"),
                     "date_posted": item.get("date_posted"),
-                    "duration_seconds": item.get("video_length"),
+                    "duration_seconds": (
+                        item.get("video_length")
+                        or item.get("duration")
+                    ),
 
                     "views_total": item.get("views"),
                     "likes_total": item.get("likes"),
@@ -766,6 +896,9 @@ class Transformation:
                 or "yt_channel" in source_file_lower
             ):
                 details = item.get("Details") or {}
+                if not isinstance(details, dict):
+                    details = {}
+
                 links = item.get("Links") or []
 
                 website_url = None
@@ -782,12 +915,21 @@ class Transformation:
                         item.get("identifier")
                         or item.get("id")
                     ),
-                    "profile_url": item.get("url"),
+                    "profile_url": (
+                        item.get("url")
+                        or item.get("channel_url")
+                    ),
                     "profile_handle": (
                         item.get("handle")
-                        or self.extract_handle(item.get("url"))
+                        or self.extract_handle(
+                            item.get("url")
+                            or item.get("channel_url")
+                        )
                     ),
-                    "profile_name": item.get("name"),
+                    "profile_name": (
+                        item.get("name")
+                        or item.get("channel_name")
+                    ),
                     "biography": (
                         item.get("Description")
                         or item.get("description")
@@ -799,9 +941,17 @@ class Transformation:
 
                     "subscribers_total": item.get("subscribers"),
                     "posts_total": None,
-                    "videos_total": item.get("videos_count"),
+                    "videos_total": (
+                        item.get("videos_count")
+                        if item.get("videos_count") is not None
+                        else item.get("total_videos")
+                    ),
                     "likes_total": None,
-                    "views_total": item.get("views"),
+                    "views_total": (
+                        item.get("views")
+                        if item.get("views") is not None
+                        else item.get("total_views")
+                    ),
 
                     "location": details.get("location"),
                     "website_url": website_url,
@@ -857,186 +1007,224 @@ class Transformation:
 
         return bool(commerce_info)
     
-    def process_posts(self):
-        for file in self.bronze_folder.glob("*.json"):
-            data = self.parse_json(file)
-            self.extract_posts(data, file.name)
-        posts_df = pd.DataFrame(self.posts)
-        posts_df = posts_df.drop_duplicates(subset=["platform", "post_id"])
+    def _reset(self, *collections):
+        for collection in collections:
+            setattr(self, collection, [])
+        self.errors = []
 
-        output_path = self.silver_folder / f"posts_{self.timestamp}.csv"
-        posts_df.to_csv(output_path, index=False)
-        print(f"Saved posts_{self.timestamp}.csv at {output_path}")
+    def _record_error(self, file_path, stage, error):
+        details = {
+            "source_file": file_path.name,
+            "stage": stage,
+            "error": str(error),
+        }
+        self.errors.append(details)
+        logger.warning(
+            "Could not %s %s: %s",
+            stage,
+            file_path.name,
+            error,
+        )
 
-        return posts_df
-    
-    def process_comments(self):
-        for file in self.bronze_folder.glob("*.json"):
-            data = self.parse_json(file)
-            self.extract_comments(data, file.name)
-        comments_df = pd.DataFrame(self.comments)
-        comments_df = comments_df.drop_duplicates(subset=["platform", "comment_id"])
-        
-        self.silver_folder.mkdir(parents=True, exist_ok=True)
-        
-        output_path = self.silver_folder / f"comments_{self.timestamp}.csv"
-
-        comments_df.to_csv(output_path, index=False)
-        print(f"Saved comments_{self.timestamp}.csv at {output_path}")
-
-        return comments_df
-    
-    def process_videos(self):
-        for file in self.bronze_folder.glob("*.json"):
+    def _extract_files(self, extractors):
+        """Parse each bronze file once and pass it to selected extractors."""
+        for file_path in sorted(self.bronze_folder.glob("*.json")):
             try:
-                data = self.parse_json(file)
-                self.extract_videos(data, file.name)
-
+                data = self.parse_json(file_path)
             except (json.JSONDecodeError, OSError) as error:
-                print(
-                    f"Could not process video file "
-                    f"{file.name}: {error}"
-                )
+                self._record_error(file_path, "parse", error)
+                continue
 
-        videos_df = pd.DataFrame(self.videos)
-        videos_df = videos_df.drop_duplicates(
-            subset=["platform", "video_id"],
-            keep="last",
+            for extractor in extractors:
+                try:
+                    extractor(data, file_path.name)
+                except (AttributeError, TypeError, ValueError) as error:
+                    self._record_error(
+                        file_path,
+                        extractor.__name__,
+                        error,
+                    )
+
+    @staticmethod
+    def _frame(records, columns):
+        return pd.DataFrame.from_records(records).reindex(columns=columns)
+
+    @staticmethod
+    def _deduplicate(frame, id_column, keep="last"):
+        """De-duplicate real IDs without collapsing rows with missing IDs."""
+        if frame.empty:
+            return frame
+
+        identifiers = (
+            frame[id_column]
+            .astype("string")
+            .fillna("")
+            .str.strip()
         )
-
-        videos_df["date_posted"] = pd.to_datetime(
-            videos_df["date_posted"],
-            errors="coerce",
-            utc=True,
+        has_id = identifiers.ne("")
+        with_id = frame.loc[has_id].drop_duplicates(
+            subset=["platform", id_column],
+            keep=keep,
         )
+        without_id = frame.loc[~has_id]
+        return pd.concat([with_id, without_id]).sort_index()
 
-        boolean_columns = [
-            "is_verified",
-            "is_sponsored",
-        ]
+    @staticmethod
+    def _to_boolean(series):
+        def normalize(value):
+            if value is None or value is pd.NA:
+                return pd.NA
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, (int, float)) and value in {0, 1}:
+                return bool(value)
+            if isinstance(value, str):
+                lowered = value.strip().lower()
+                if lowered in {"true", "1", "yes", "y"}:
+                    return True
+                if lowered in {"false", "0", "no", "n"}:
+                    return False
+            return pd.NA
 
-        for column in boolean_columns:
-            videos_df[column] = videos_df[column].astype(
-                "boolean"
-            )
+        return series.map(normalize).astype("boolean")
 
-        self.silver_folder.mkdir(
-            parents=True,   # create parent directories if they don't exist
-            exist_ok=True,  # do not raise an error if the directory already exists
-        )
-
-        output_path = self.silver_folder / f"videos_{self.timestamp}.csv"
-
-        videos_df.to_csv(
-            output_path,
-            index=False,
-        )
-
-        print(
-            f"Saved videos_{self.timestamp}.csv at {output_path}"
-        )
-
-        return videos_df
-    
-    def process_profiles(self):
-        self.profiles = []
-
-        for file in self.bronze_folder.rglob("*.json"):
-            try:
-                data = self.parse_json(file)
-                self.extract_profiles(data, file.name)
-
-            except (json.JSONDecodeError, OSError) as error:
-                print(
-                    f"Could not process profile file "
-                    f"{file.name}: {error}"
-                )
-
-        profiles_df = pd.DataFrame(self.profiles)
-
-        if profiles_df.empty:
-            print("No profiles were extracted.")
-            return profiles_df
-
-        profiles_df = profiles_df.drop_duplicates(
-            subset=["platform", "profile_id"],
-            keep="last",
-        )
-
-        numeric_columns = [
-            "followers_total",
-            "following_total",
-            "friends_total",
-            "subscribers_total",
-            "posts_total",
-            "videos_total",
-            "likes_total",
-            "views_total",
-        ]
-
-        for column in numeric_columns:
-            profiles_df[column] = pd.to_numeric(
-                profiles_df[column],
+    @staticmethod
+    def _convert_numeric(frame, columns):
+        for column in columns:
+            frame[column] = pd.to_numeric(
+                frame[column],
                 errors="coerce",
             ).astype("Int64")
 
-        profiles_df["engagement_rate"] = pd.to_numeric(
-            profiles_df["engagement_rate"],
-            errors="coerce",
-        )
-
-        profiles_df["created_date"] = pd.to_datetime(
-            profiles_df["created_date"],
+    @staticmethod
+    def _convert_datetime(frame, column):
+        frame[column] = pd.to_datetime(
+            frame[column],
             errors="coerce",
             utc=True,
         )
 
-        boolean_columns = [
+    def _write_frame(self, frame, entity):
+        self.silver_folder.mkdir(parents=True, exist_ok=True)
+        output_path = (
+            self.silver_folder
+            / f"{entity}_{self.timestamp}.csv"
+        )
+        frame.to_csv(output_path, index=False)
+        logger.info("Saved %s records to %s", len(frame), output_path)
+        return frame
+
+    def _finalize_posts(self):
+        frame = self._frame(self.posts, self.POST_COLUMNS)
+        frame = self._deduplicate(frame, "post_id")
+        self._convert_numeric(
+            frame,
+            [
+                "impressions_total", "impressions_upvotes",
+                "impressions_like", "impressions_love",
+                "impressions_care", "impressions_wow",
+                "impressions_haha", "impressions_angry",
+                "impressions_sad", "comments_total", "shares_total",
+            ],
+        )
+        self._convert_datetime(frame, "date_posted")
+        frame["is_sponsored"] = self._to_boolean(frame["is_sponsored"])
+        return self._write_frame(frame, "posts")
+
+    def _finalize_comments(self):
+        frame = self._frame(self.comments, self.COMMENT_COLUMNS)
+        frame = self._deduplicate(frame, "comment_id")
+        self._convert_numeric(
+            frame,
+            ["engagement_likes", "replies_total"],
+        )
+        self._convert_datetime(frame, "date_posted")
+        frame["is_reply"] = self._to_boolean(frame["is_reply"])
+        return self._write_frame(frame, "comments")
+
+    def _finalize_videos(self):
+        frame = self._frame(self.videos, self.VIDEO_COLUMNS)
+        frame = self._deduplicate(frame, "video_id")
+        self._convert_numeric(
+            frame,
+            [
+                "views_total", "likes_total", "comments_total",
+                "shares_total", "saves_total",
+            ],
+        )
+        self._convert_datetime(frame, "date_posted")
+        for column in ["is_verified", "is_sponsored"]:
+            frame[column] = self._to_boolean(frame[column])
+        return self._write_frame(frame, "videos")
+
+    def _finalize_profiles(self):
+        frame = self._frame(self.profiles, self.PROFILE_COLUMNS)
+        frame = self._deduplicate(frame, "profile_id")
+        self._convert_numeric(
+            frame,
+            [
+                "followers_total", "following_total", "friends_total",
+                "subscribers_total", "posts_total", "videos_total",
+                "likes_total", "views_total",
+            ],
+        )
+        frame["engagement_rate"] = pd.to_numeric(
+            frame["engagement_rate"],
+            errors="coerce",
+        )
+        self._convert_datetime(frame, "created_date")
+        for column in [
             "is_verified",
             "is_private",
             "is_business",
             "is_professional",
-        ]
+        ]:
+            frame[column] = self._to_boolean(frame[column])
+        return self._write_frame(frame, "profiles")
 
-        for column in boolean_columns:
-            profiles_df[column] = profiles_df[column].astype(
-                "boolean"
-            )
+    def process_posts(self):
+        self._reset("posts")
+        self._extract_files([self.extract_posts])
+        return self._finalize_posts()
 
-        self.silver_folder.mkdir(
-            parents=True,
-            exist_ok=True,
-        )
+    def process_comments(self):
+        self._reset("comments")
+        self._extract_files([self.extract_comments])
+        return self._finalize_comments()
 
-        output_path = (
-            self.silver_folder
-            / f"profiles_{self.timestamp}.csv"
-        )
+    def process_videos(self):
+        self._reset("videos")
+        self._extract_files([self.extract_videos])
+        return self._finalize_videos()
 
-        profiles_df.to_csv(
-            output_path,
-            index=False,
-        )
+    def process_profiles(self):
+        self._reset("profiles")
+        self._extract_files([self.extract_profiles])
+        return self._finalize_profiles()
 
-        print(
-            f"Saved profiles_{self.timestamp}.csv "
-            f"at {output_path}"
-        )
-
-        return profiles_df
-    
     def run(self):
-        posts_df = self.process_posts()
-        comments_df = self.process_comments()
-        videos_df = self.process_videos()
-        profiles_df = self.process_profiles()
+        """Parse bronze JSON once, write all silver tables, and return them."""
+        self._reset("posts", "comments", "videos", "profiles")
+        self._extract_files(
+            [
+                self.extract_posts,
+                self.extract_comments,
+                self.extract_videos,
+                self.extract_profiles,
+            ]
+        )
 
-        return profiles_df
+        return {
+            "posts": self._finalize_posts(),
+            "comments": self._finalize_comments(),
+            "videos": self._finalize_videos(),
+            "profiles": self._finalize_profiles(),
+            "errors": list(self.errors),
+        }
 
 
-# test the Transformation class
 if __name__ == "__main__":
-    transformer = Transformation()
-    profiles_df = transformer.run()
-
-    print(profiles_df.head().to_string(index=False))
+    outputs = Transformation().run()
+    for entity in ("posts", "comments", "videos", "profiles"):
+        print(f"{entity}: {len(outputs[entity])} records")
+    print(f"errors: {len(outputs['errors'])}")
